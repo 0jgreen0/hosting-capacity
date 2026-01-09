@@ -1,147 +1,220 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Incentive Screening Tool</title>
-    <meta charset="utf-8" />
+    <title>Utility Incentive Eligibility Checker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://unpkg.com/topojson-client@3"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #map { height: 100vh; width: 100%; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; }
+        h2 { color: #015473; margin-top: 0; }
         
-        /* Loading Spinner Styles */
-        #loader-container {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255,255,255,0.9);
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-            z-index: 1000;
-        }
-        .spinner {
-            width: 50px; height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .main-container { display: flex; gap: 20px; flex-wrap: wrap; }
+        .form-section { flex: 1; min-width: 350px; }
+        .guide-section { width: 300px; background: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; }
+        
+        #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; z-index: 1; }
+        
+        .result { padding: 20px; margin: 15px 0; border-radius: 6px; border-width: 2px; border-style: solid; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .eligible { background: #eef6fb; border-color: #005a8d; }
+        .not-eligible { background: #fff5eb; border-color: #d95f02; }
+        .error-box { background: #f2f2f2; border-color: #757575; }
+        
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #015473; margin-top: 15px; }
+        .input-group input, .input-group select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
+        .input-group button { width: 100%; margin-top: 20px; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; transition: background 0.2s; }
+        .input-group button:hover { background-color: #005a8d; }
+        
+        .status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; color: white; margin-top: 5px; }
+        .pill-yes { background-color: #2ecc71; }
+        .pill-no { background-color: #e74c3c; }
 
-        /* Custom Legend Styles */
-        .info {
-            padding: 6px 8px;
-            font: 14px/16px Arial, Helvetica, sans-serif;
-            background: white;
-            background: rgba(255,255,255,0.8);
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
-            border-radius: 5px;
-        }
-        .legend {
-            line-height: 18px;
-            color: #555;
-        }
-        .legend i {
-            width: 18px;
-            height: 18px;
-            float: left;
-            margin-right: 8px;
-            opacity: 0.7;
-        }
+        .guide-section h4 { margin-top: 0; color: #015473; border-bottom: 2px solid #068DBC; padding-bottom: 5px; }
+        .guide-item { margin-bottom: 12px; }
+        .guide-item strong { display: block; color: #444; }
+
+        .disclaimer-box { margin-top: 30px; font-size: 13px; color: #666; border-top: 1px solid #ccc; padding-top: 15px; }
+        
+        #loader { display: none; font-style: italic; color: #068DBC; margin-top: 10px; }
     </style>
 </head>
+
 <body>
+    <h2>Utility Incentive Eligibility Checker</h2>
 
-<div id="loader-container">
-    <div class="spinner"></div>
-    <p>Loading Rhode Island Circuit Data...</p>
-</div>
+    <div class="main-container">
+        <div class="form-section">
+            <div class="input-group">
+                <label for="utility-select">1. Utility Provider</label>
+                <select id="utility-select">
+                    <option value="ri-energy">Rhode Island Energy</option>
+                    <option value="other">Other Utility</option>
+                </select>
+                
+                <label for="address">2. Property Address</label>
+                <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
+                
+                <button onclick="checkAddress()">Check Eligibility</button>
+                <div id="loader">Analyzing grid capacity...</div>
+            </div>
+            <div id="result"></div>
+        </div>
 
-<div id="map"></div>
-
-<script>
-    // Initialize Map
-    const map = L.map('map').setView([41.6, -71.5], 10);
+        <div class="guide-section">
+            <h4>Quick Guide</h4>
+            <div class="guide-item">
+                <strong>Heat Pump Incentives</strong>
+                Available for addresses served by "Electrification Ready" feeders (shown in green on map).
+            </div>
+            <div class="guide-item">
+                <strong>Generation Limits</strong>
+                Some areas may have high generation utilization, which can affect solar or battery storage interconnection.
+            </div>
+            <div class="guide-item">
+                <strong>How it works</strong>
+                We geocode your address and find the nearest electrical circuit (feeder) to determine your local grid status.
+            </div>
+        </div>
+    </div>
     
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
+    <div id="map"></div>
 
-    // Track loading status of both files
-    let layersLoaded = 0;
-    function checkLoad() {
-        layersLoaded++;
-        if (layersLoaded === 2) {
-            document.getElementById('loader-container').style.display = 'none';
-        }
-    }
+    <div class="disclaimer-box">
+        <p><strong>Disclaimer:</strong> This tool reflects data from the RI System Data Portal. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability. Verified data can be found at the <a href="https://portalconnect.rienergy.com/RI/s/article/Rhode-Island-System-Data-Portal" target="_blank">RI Energy Portal</a>.</p>
+    </div>
 
-    // GitHub Raw URLs (Targeting 'main' branch)
-    const loadScreenUrl = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
-    const genScreenUrl = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
+    <script>
+        // Data Sources
+        const LOAD_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
+        const GEN_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
 
-    // --- 1. Load Screen Layer ---
-    fetch(loadScreenUrl)
-        .then(res => {
-            if (!res.ok) throw new Error('Network response was not ok');
-            return res.json();
-        })
-        .then(topology => {
-            const geojson = topojson.feature(topology, topology.objects.ri_load_screen);
+        let map, loadLayer, genLayer, addressMarker;
+        let loadGeoJSON, genGeoJSON;
+
+        // Initialize Map
+        map = L.map('map').setView([41.65, -71.45], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // Fetch and Process Data
+        Promise.all([
+            fetch(LOAD_SCREEN_URL).then(r => r.json()),
+            fetch(GEN_SCREEN_URL).then(r => r.json())
+        ]).then(([loadData, genData]) => {
             
-            L.geoJSON(geojson, {
+            // Convert TopoJSON to GeoJSON
+            loadGeoJSON = topojson.feature(loadData, loadData.objects.ri_load_screen);
+            genGeoJSON = topojson.feature(genData, genData.objects.ri_generation_screen);
+
+            // Create Map Layers
+            loadLayer = L.geoJSON(loadGeoJSON, {
                 style: (f) => ({
                     color: f.properties.HP_Electrification_Ready === 'YES' ? '#2ecc71' : '#e74c3c',
-                    weight: 3,
-                    opacity: 0.8
-                }),
-                onEachFeature: (f, l) => {
-                    l.bindPopup(`
-                        <strong>Feeder:</strong> ${f.properties.Feeder}<br>
-                        <strong>Electrification Ready:</strong> ${f.properties.HP_Electrification_Ready}
-                    `);
-                }
+                    weight: 3, opacity: 0.8
+                })
             }).addTo(map);
-            checkLoad();
-        })
-        .catch(err => {
-            console.error('Error loading load screen:', err);
-            checkLoad(); // Prevent loader from being stuck
-        });
 
-    // --- 2. Generation Screen Layer ---
-    fetch(genScreenUrl)
-        .then(res => {
-            if (!res.ok) throw new Error('Network response was not ok');
-            return res.json();
-        })
-        .then(topology => {
-            const geojson = topojson.feature(topology, topology.objects.ri_generation_screen);
-            
-            L.geoJSON(geojson, {
+            genLayer = L.geoJSON(genGeoJSON, {
                 style: (f) => ({
                     color: f.properties.Gen_Utilization_Pct > 80 ? '#f39c12' : '#3498db',
-                    weight: 2,
-                    dashArray: '5, 5',
-                    opacity: 0.7
-                }),
-                onEachFeature: (f, l) => {
-                    l.bindPopup(`
-                        <strong>Network ID:</strong> ${f.properties.Network_ID}<br>
-                        <strong>Generation Utilization:</strong> ${f.properties.Gen_Utilization_Pct}%
-                    `);
-                }
-            }).addTo(map);
-            checkLoad();
-        })
-        .catch(err => {
-            console.error('Error loading generation screen:', err);
-            checkLoad(); // Prevent loader from being stuck
-        });
-</script>
+                    weight: 2, dashArray: '5, 5', opacity: 0.6
+                })
+            });
 
+            L.control.layers({"Load (Heat Pump)": loadLayer, "Generation (Solar/Storage)": genLayer}, null, {collapsed: false}).addTo(map);
+        });
+
+        async function checkAddress() {
+            const utility = document.getElementById('utility-select').value;
+            const address = document.getElementById('address').value.trim();
+            const resultDiv = document.getElementById('result');
+            const loader = document.getElementById('loader');
+            
+            if (utility !== 'ri-energy') {
+                resultDiv.innerHTML = `<div class="result error-box"><h3>Utility Not Supported</h3><p>This tool currently supports Rhode Island Energy only.</p></div>`;
+                return;
+            }
+            if (!address) { alert('Please enter an address.'); return; }
+
+            resultDiv.innerHTML = "";
+            loader.style.display = "block";
+
+            try {
+                // 1. Geocoding
+                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&countrycodes=us&limit=1`);
+                const geoData = await response.json();
+                if (geoData.length === 0) throw new Error("Address not found.");
+
+                const lat = parseFloat(geoData[0].lat);
+                const lon = parseFloat(geoData[0].lon);
+                const userPoint = turf.point([lon, lat]);
+
+                // 2. Find Nearest Feeder (Load)
+                let minLoadDist = Infinity;
+                let nearestLoadFeeder = null;
+
+                loadGeoJSON.features.forEach(f => {
+                    const d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
+                    if (d < minLoadDist) { minLoadDist = d; nearestLoadFeeder = f; }
+                });
+
+                // 3. Find Nearest Network (Gen)
+                let minGenDist = Infinity;
+                let nearestGenFeeder = null;
+
+                genGeoJSON.features.forEach(f => {
+                    const d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
+                    if (d < minGenDist) { minGenDist = d; nearestGenFeeder = f; }
+                });
+
+                displayResult({
+                    address,
+                    lat, lon,
+                    load: nearestLoadFeeder.properties,
+                    gen: nearestGenFeeder.properties,
+                    dist_ft: minLoadDist * 3280.84
+                });
+
+            } catch (e) {
+                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Error</h3><p>${e.message}</p></div>`;
+            } finally {
+                loader.style.display = "none";
+            }
+        }
+
+        function displayResult(data) {
+            const res = document.getElementById('result');
+            const isReady = data.load.HP_Electrification_Ready === 'YES';
+
+            res.className = `result ${isReady ? 'eligible' : 'not-eligible'}`;
+            res.innerHTML = `
+                <h3>${isReady ? 'Eligible for Enhanced Incentives' : 'Standard Incentives Apply'}</h3>
+                <p><strong>Detected Feeder:</strong> ${data.load.Feeder}</p>
+                <hr>
+                <p>
+                    <strong>Heat Pump Electrification:</strong> 
+                    <span class="status-pill ${isReady ? 'pill-yes' : 'pill-no'}">${data.load.HP_Electrification_Ready}</span>
+                </p>
+                <p>
+                    <strong>Generation Utilization:</strong> ${data.gen.Gen_Utilization_Pct}%<br>
+                    <small>Network ID: ${data.gen.Network_ID}</small>
+                </p>
+                <p style="font-size:11px; color:#666; margin-top:10px;">
+                    Approx. ${Math.round(data.dist_ft)} ft from circuit backbone.
+                </p>
+            `;
+
+            if (addressMarker) map.removeLayer(addressMarker);
+            addressMarker = L.circleMarker([data.lat, data.lon], {color: '#7030A0', radius: 8, fillOpacity: 1}).addTo(map);
+            map.setView([data.lat, data.lon], 15);
+        }
+    </script>
 </body>
 </html>
