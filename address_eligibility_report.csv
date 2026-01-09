@@ -1,4 +1,0 @@
-address,latitude,longitude,overall_eligible,reason,feeder_id,distance_feet,GEN_CAPACITY_PCT,LOAD_CAPACITY_PCT,battery_incentive_eligible,heat_pump_incentive_eligible
-"150 Washington St, Providence, RI",41.822714,-71.4150366,yes,Within service area.,N/A,769.3,81,53,yes,yes
-"98 Pascoag Main St, Pascoag, RI",41.956861,-71.701663,no,Address is OUTSIDE the service/inclusion area.,,N/A,N/A,N/A,no,no
-"12 Ocean Ave, New Shoreham, RI",41.1738157,-71.5625103,no,Address is OUTSIDE the service/inclusion area.,,N/A,N/A,N/A,no,no

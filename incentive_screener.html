@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Incentive Screening Tool</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/topojson-client@3"></script>
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* Loading Spinner Styles */
+        #loader-container {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.8);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .legend {
+            background: white; padding: 10px; line-height: 18px; color: #555;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2); border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader-container">
+    <div class="spinner"></div>
+    <p>Loading Circuit Data...</p>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const map = L.map('map').setView([41.6, -71.5], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Track loading status of both files
+    let layersLoaded = 0;
+    function checkLoad() {
+        layersLoaded++;
+        if (layersLoaded === 2) {
+            document.getElementById('loader-container').style.display = 'none';
+        }
+    }
+
+    // --- 1. Load Screen Layer ---
+    fetch('ri_load_screen.json')
+        .then(res => res.json())
+        .then(topology => {
+            // Convert TopoJSON to GeoJSON (Ensure 'ri_load_screen' matches the object name in the file)
+            const geojson = topojson.feature(topology, topology.objects.ri_load_screen);
+            
+            L.geoJSON(geojson, {
+                style: (f) => ({
+                    color: f.properties.HP_Electrification_Ready === 'YES' ? '#2ecc71' : '#e74c3c',
+                    weight: 3
+                }),
+                onEachFeature: (f, l) => {
+                    l.bindPopup(`<b>Feeder:</b> ${f.properties.Feeder}<br><b>Ready:</b> ${f.properties.HP_Electrification_Ready}`);
+                }
+            }).addTo(map);
+            checkLoad();
+        });
+
+    // --- 2. Generation Screen Layer ---
+    fetch('ri_generation_screen.json')
+        .then(res => res.json())
+        .then(topology => {
+            const geojson = topojson.feature(topology, topology.objects.ri_generation_screen);
+            
+            L.geoJSON(geojson, {
+                style: (f) => ({
+                    color: f.properties.Gen_Utilization_Pct > 80 ? '#f39c12' : '#3498db',
+                    weight: 2,
+                    dashArray: '5, 5'
+                }),
+                onEachFeature: (f, l) => {
+                    l.bindPopup(`<b>Network:</b> ${f.properties.Network_ID}<br><b>Util:</b> ${f.properties.Gen_Utilization_Pct}%`);
+                }
+            }).addTo(map);
+            checkLoad();
+        });
+</script>
+</body>
+</html>
