@@ -6,58 +6,96 @@
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        /* Styles for the page elements */
-        #map { height: 400px; width: 100%; margin-top: 15px; }
+        /* Base Styling */
+        body { font-family: Arial, sans-serif; }
+        #map { height: 400px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; }
+        
+        /* Result Box Styling */
         .result {
             padding: 20px;
-            margin: 10px 0;
-            border-radius: 5px;
-            border: 2px solid #ccc;
+            margin: 15px 0;
+            border-radius: 6px;
+            border-width: 2px;
+            border-style: solid;
         }
-        /* Color classes based on incentive eligibility status */
-        .eligible { background: #d4edda; border-color: #28a745; }
-        .not-eligible { background: #f8d7da; border-color: #dc3545; }
-        .service-area-fail { background: #fff3cd; border-color: #ffc107; }
         
-        /* Input styling */
-        .input-group label, .input-group select, .input-group input, .input-group button {
+        /* Color Classes based on your palette */
+        /* Success (Green) */
+        .eligible { 
+            background: #e6f1e7; /* Light background */
+            border-color: #448C49; /* Green border */
+        }
+        /* Warning/Not Eligible (Orange) */
+        .not-eligible { 
+            background: #fdf0e6; /* Light background */
+            border-color: #ED7D31; /* Orange border */
+        }
+        /* Service Area/Utility Check Failure (Rich Yellow/Light Grey) */
+        .service-area-fail { 
+            background: #fffae8; /* Lighter Rich Yellow background */
+            border-color: #FFC000; /* Rich Yellow border */
+        }
+        
+        /* Input & Button Styling */
+        .input-group label {
             display: block;
-            margin-bottom: 10px;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #015473; /* Dark Blue Text */
         }
         .input-group input, .input-group select {
             width: 100%;
-            max-width: 400px;
-            padding: 8px;
-            font-size: 14px;
-            box-sizing: border-box; /* Include padding in width calculation */
+            max-width: 450px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 16px;
+            border: 1px solid #B3B3B3; /* Light Grey border */
+            border-radius: 4px;
+            box-sizing: border-box; 
         }
         .input-group button { 
-            padding: 10px 20px; 
+            padding: 12px 25px; 
             font-size: 16px; 
             cursor: pointer; 
-            background-color: #007bff;
+            background-color: #068DBC; /* Medium Blue Action Color */
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
         }
+        .input-group button:hover {
+            background-color: #015473; /* Dark Blue on hover */
+        }
+
+        /* Feeder Capacity Display */
+        .capacity-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            margin-right: 5px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .cap-low { background-color: #448C49; color: white; } /* Green for good capacity */
+        .cap-high { background-color: #ED7D31; color: white; } /* Orange for high capacity */
     </style>
 
 </head>
 
 <body>
     <h2>⚡ Enhanced Incentive Eligibility Checker</h2>
-    <p>Please confirm your utility and enter your address to check eligibility for enhanced energy incentives.</p>
+    <p>Please confirm your utility and enter your address to check eligibility for enhanced energy incentives based on local grid capacity.</p>
 
     <div class="input-group">
         <label for="utility-select">1. Select Your Utility Provider:</label>
         <select id="utility-select">
             <option value="">-- Select Utility --</option>
             <option value="ri-energy">Rhode Island Energy (Electric & Gas)</option>
-            <option value="other">Other Utility (e.g., Block Island Power)</option>
+            <option value="other">Other Utility</option>
         </select>
         
         <label for="address">2. Enter Your Address:</label>
-        <input id="address" type="text" placeholder="123 Main St, Providence, RI">
+        <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
         
         <button onclick="checkAddress()">Check Eligibility</button>
     </div>
@@ -67,12 +105,15 @@
 
     <script>
         // --- CONFIGURATION ---
-        // Capacity Threshold: Below this percentage means the feeder has capacity (is eligible).
+        // Capacity Threshold: Below this percentage means the feeder has available capacity (is eligible).
         const CAPACITY_THRESHOLD_PCT = 90; 
+        // File Names (As requested)
+        const FEEDER_FILE = 'https://github.com/0jgreen0/hosting-capacity/blob/5d06d53720299f2f55e0e55ca31d12898caceebc/ngrid_sample_feeders.geojson';
+        const INCLUSION_FILE = 'https://github.com/0jgreen0/hosting-capacity/blob/5d06d53720299f2f55e0e55ca31d12898caceebc/inclusion_map/inclusion_map.geojson';
 
         // Data holders
         let feedersData;
-        let inclusionData; // Your former exclusion data is now interpreted as the INCLUSION boundary (Service Area)
+        let inclusionData;
         let feederLayer;
         let addressMarker;
         
@@ -82,32 +123,36 @@
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
-        // Load data files (Ensure these GeoJSON files are hosted and accessible)
-        // Note: The previous logic assumed 'exclusion_zones.geojson' defined excluded areas.
-        // Based on the Python script, we'll assume a file defining the INCLUSION (service) area. 
-        // We will rename the file to 'service_area.geojson' for clarity in this web context.
-        const serviceAreaPromise = fetch('service_area.geojson') 
+        // Load data files (MUST BE HOSTED ON GITHUB RAW OR SIMILAR)
+        const inclusionPromise = fetch(INCLUSION_FILE) 
             .then(r => r.json())
             .then(data => {
                 inclusionData = data;
                 // Display the service/inclusion area boundary
                 L.geoJSON(data, {
-                    style: { color: '#00cc00', weight: 2, fillOpacity: 0.1, fillColor: '#00cc00' }
+                    style: { color: '#068DBC', weight: 2, fillOpacity: 0.1, fillColor: '#48BCEC' }
                 }).addTo(map).bindPopup("RI Energy Service Area");
             });
 
-        const feedersPromise = fetch('load_hosting_feeders.geojson')
+        const feedersPromise = fetch(FEEDER_FILE)
             .then(r => r.json())
             .then(data => {
                 feedersData = data;
                 feederLayer = L.geoJSON(data, {
-                    style: { color: '#0066cc', weight: 2 }
+                    style: { color: '#ED7D31', weight: 2 } /* Orange for feeder lines */
                 }).addTo(map).bindPopup(function(layer) {
                      return `Feeder ID: ${layer.feature.properties.FEEDER_ID}<br>
                              Gen Cap: ${layer.feature.properties.GEN_CAPACITY_PCT}%<br>
                              Load Cap: ${layer.feature.properties.LOAD_CAPACITY_PCT}%`;
                 });
             });
+
+        /**
+         * Helper function to determine the capacity styling class.
+         */
+        function getCapacityClass(capacity) {
+            return capacity < CAPACITY_THRESHOLD_PCT ? 'cap-low' : 'cap-high';
+        }
 
         /**
          * Main function to geocode address and check eligibility.
@@ -130,8 +175,8 @@
             }
 
             // Await both GeoJSON files to be loaded
-            await Promise.all([serviceAreaPromise, feedersPromise]).catch(error => {
-                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Fatal Error</h3><p>Could not load spatial data files. Please contact support.</p></div>`;
+            await Promise.all([inclusionPromise, feedersPromise]).catch(error => {
+                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Fatal Error</h3><p>Could not load spatial data files (${FEEDER_FILE} or ${INCLUSION_FILE}). Please contact support.</p></div>`;
                 console.error("Data loading error:", error);
                 return;
             });
@@ -146,7 +191,7 @@
                 const geocodeData = await geocodeResponse.json();
                 
                 if (geocodeData.length === 0) {
-                    alert('Address not found. Please try a different format (e.g., "123 Main St, Providence, RI").');
+                    alert('Address not found. Please try a different format.');
                     resultDiv.innerHTML = `<div class="result not-eligible"><h3>Address Not Found</h3><p>Could not locate the address. Check your spelling.</p></div>`;
                     return;
                 }
@@ -185,11 +230,11 @@
                     }
                 }
                 
-                // Get capacity data (assuming properties GEN_CAPACITY_PCT and LOAD_CAPACITY_PCT exist)
+                // Get capacity data (must ensure properties exist in your GeoJSON)
                 const genCap = nearestFeeder.properties.GEN_CAPACITY_PCT;
                 const loadCap = nearestFeeder.properties.LOAD_CAPACITY_PCT;
 
-                // Capacity Eligibility Logic (Below 90% is good/eligible)
+                // Capacity Eligibility Logic (Below CAPACITY_THRESHOLD_PCT is good/eligible)
                 const isBatteryEligible = (genCap < CAPACITY_THRESHOLD_PCT) && (loadCap < CAPACITY_THRESHOLD_PCT);
                 const isHeatPumpEligible = (loadCap < CAPACITY_THRESHOLD_PCT);
 
@@ -210,24 +255,24 @@
             } catch (error) {
                 alert('Error processing request. Please check the console for details.');
                 console.error("Processing error:", error);
-                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Error</h3><p>An unexpected error occurred during processing.</p></div>`;
+                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Error</h3><p>An unexpected error occurred during processing. Please check GeoJSON file properties (GEN_CAPACITY_PCT, LOAD_CAPACITY_PCT).</p></div>`;
             }
         }
         
         function displayUtilityCheckResult(utility) {
             const resultDiv = document.getElementById('result');
+            resultDiv.className = 'result service-area-fail';
+            
             if (utility === 'other') {
-                resultDiv.className = 'result service-area-fail';
                 resultDiv.innerHTML = `
                     <h3>⚠️ Utility Not Supported</h3>
                     <p><strong>Reason:</strong> This incentive program is exclusively for **Rhode Island Energy** customers.</p>
                     <p>Please contact your utility provider for their incentive programs.</p>
                 `;
             } else { // No utility selected
-                 resultDiv.className = 'result service-area-fail';
                  resultDiv.innerHTML = `
                     <h3>⚠️ Please Select Utility</h3>
-                    <p>Please use the drop-down menu to confirm you are a Rhode Island Energy customer.</p>
+                    <p>Please use the drop-down menu to confirm you are a Rhode Island Energy customer to proceed with the check.</p>
                 `;
             }
         }
@@ -239,7 +284,7 @@
                 resultDiv.className = 'result not-eligible';
                 resultDiv.innerHTML = `
                     <h3>✗ Not Eligible (Service Area)</h3>
-                    <p><strong>Reason:</strong> This address appears to be outside the **Rhode Island Energy service area**. Incentives are not available.</p>
+                    <p><strong>Reason:</strong> This address appears to be outside the **Rhode Island Energy service area**. Enhanced incentives are not available.</p>
                     <p><strong>Address:</strong> ${data.address}</p>
                 `;
             } else {
@@ -247,32 +292,41 @@
                 const overallEligible = data.isBatteryEligible || data.isHeatPumpEligible;
                 const eligibleClass = overallEligible ? 'eligible' : 'not-eligible';
                 
+                // Helper to format capacity display
+                const genCapClass = getCapacityClass(data.gen_cap);
+                const loadCapClass = getCapacityClass(data.load_cap);
+
                 resultDiv.className = `result ${eligibleClass}`;
                 resultDiv.innerHTML = `
                     <h3>${overallEligible ? '🎉 Eligible for Enhanced Incentives' : '✗ Enhanced Incentives Not Available'}</h3>
                     
-                    <p><strong>Capacity Threshold:</strong> Feeder capacity must be **below ${CAPACITY_THRESHOLD_PCT}%** to qualify for enhanced incentives.</p>
-                    <hr>
+                    <p style="margin-top: 15px;">Feeder capacity must be **below ${CAPACITY_THRESHOLD_PCT}%** to qualify for enhanced incentives.</p>
+                    <hr style="border-color: #B3B3B3;">
                     
                     <h4>🔋 Battery Storage Incentive</h4>
                     <p>
                         **Status:** ${data.isBatteryEligible ? '✅ **ELIGIBLE**' : '❌ NOT Eligible'}
                         <br>
-                        **Requirement:** Both **Generation Capacity** (${data.gen_cap.toFixed(1)}%) AND **Load Capacity** (${data.load_cap.toFixed(1)}%) must be below ${CAPACITY_THRESHOLD_PCT}%.
+                        **Requirement:** Both Generation and Load capacity must be low.
+                        <br>
+                        **Capacity Found:** <span class="capacity-pill ${genCapClass}">Gen: ${data.gen_cap.toFixed(1)}%</span> 
+                        <span class="capacity-pill ${loadCapClass}">Load: ${data.load_cap.toFixed(1)}%</span> 
                     </p>
 
                     <h4>🔥 Heat Pump Incentive</h4>
                     <p>
                         **Status:** ${data.isHeatPumpEligible ? '✅ **ELIGIBLE**' : '❌ NOT Eligible'}
                         <br>
-                        **Requirement:** **Load Capacity** (${data.load_cap.toFixed(1)}%) must be below ${CAPACITY_THRESHOLD_PCT}%.
+                        **Requirement:** Load capacity must be low.
+                        <br>
+                        **Capacity Found:** <span class="capacity-pill ${loadCapClass}">Load: ${data.load_cap.toFixed(1)}%</span>
                     </p>
                     
-                    <hr>
+                    <hr style="border-color: #B3B3B3;">
                     <p style="font-size: 14px;"><strong>Nearest Feeder ID:</strong> ${data.feeder_id}</p>
                     <p style="font-size: 14px;"><strong>Distance to Feeder:</strong> ${Math.round(data.distance_feet)} feet (${Math.round(data.distance_meters)} meters)</p>
 
-                    <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                    <p style="font-size: 12px; color: #808080; margin-top: 15px;">
                         <em>Disclaimer: This tool provides a preliminary estimate based on current feeder data. Eligibility is subject to final review by Rhode Island Energy.</em>
                     </p>
                 `;
@@ -282,7 +336,15 @@
             if (addressMarker) {
                 map.removeLayer(addressMarker);
             }
-            addressMarker = L.marker([data.lat, data.lon])
+            addressMarker = L.marker([data.lat, data.lon], {
+                // Use Purple for the address marker for contrast/focus
+                icon: L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color: #7030A0; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>`,
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13]
+                })
+            })
                 .addTo(map)
                 .bindPopup(data.address)
                 .openPopup();
