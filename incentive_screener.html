@@ -5,9 +5,9 @@
     <title>Utility Incentive Eligibility Checker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/pmtiles@3.0.3/dist/pmtiles.js"></script>
     
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; background-color: #fcfcfc; }
@@ -16,7 +16,7 @@
         .main-container { display: flex; flex-direction: column; gap: 20px; }
         .form-section { width: 100%; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
         
-        #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; z-index: 1; position: relative; }
+        #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; }
         
         .result { padding: 20px; margin: 15px 0; border-radius: 6px; border-width: 2px; border-style: solid; animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -37,12 +37,15 @@
         .pill-yes { background-color: #2ecc71; }
         .pill-no { background-color: #e74c3c; }
 
-        .legend { padding: 12px; background: white; border: 2px solid #ccc; border-radius: 5px; font-size: 12px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); }
-        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.8; border-radius: 50%; }
+        .maplibregl-ctrl-group button { font-size: 18px; }
+        
+        .legend { padding: 12px; background: white; border: 2px solid #ccc; border-radius: 5px; font-size: 12px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); margin: 10px; }
+        .legend i { width: 18px; height: 3px; float: left; margin-right: 8px; margin-top: 6px; }
+        .legend-title { font-weight: bold; margin-bottom: 8px; }
 
         .conflict-warning { background: #fffbe6; border: 1px solid #ffe58f; padding: 12px; margin-top: 15px; border-radius: 4px; font-size: 13px; color: #856404; display: flex; align-items: flex-start; gap: 8px; }
 
-        .map-btn { position: absolute; top: 10px; right: 10px; z-index: 1000; background: white; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px; }
+        .map-btn { position: absolute; top: 10px; right: 10px; z-index: 1; background: white; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px; }
         .map-btn:hover { background: #f4f4f4; }
 
         .disclaimer-box { margin-top: 30px; padding: 20px; border: 1px solid #B3B3B3; border-radius: 6px; background-color: #f9f9f9; }
@@ -53,6 +56,10 @@
         .explanation-text { font-size: 13px; color: #555; margin: 5px 0 15px 0; }
 
         #loading-status { font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
+        
+        .layer-toggle { position: absolute; top: 10px; left: 10px; z-index: 1; background: white; border-radius: 4px; padding: 10px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); }
+        .layer-toggle label { display: block; margin: 5px 0; cursor: pointer; font-size: 13px; }
+        .layer-toggle input { margin-right: 8px; }
     </style>
 </head>
 
@@ -72,7 +79,7 @@
                 <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
                 
                 <button id="check-btn" onclick="handleFormSubmit()" disabled>Loading data...</button>
-                <div id="loading-status">Initializing grid data layers...</div>
+                <div id="loading-status">Initializing vector tiles...</div>
             </div>
             <div id="result"></div>
         </div>
@@ -80,6 +87,10 @@
     
     <div id="map">
         <button class="map-btn" onclick="checkAtCenter()">📍 Pin Map Center</button>
+        <div class="layer-toggle">
+            <label><input type="radio" name="layer" value="load" checked onchange="toggleLayer(this.value)"> Load Capacity</label>
+            <label><input type="radio" name="layer" value="gen" onchange="toggleLayer(this.value)"> Hosting Capacity</label>
+        </div>
     </div>
 
     <div class="disclaimer-box">
@@ -87,123 +98,135 @@
     </div>
 
     <script>
-        const LOAD_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
-        const GEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
-        const FEET_200_KM = 0.06096;
-
+        const LOAD_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.pmtiles';
+        const GEN_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.pmtiles';
+        const QUERY_RADIUS_KM = 0.06096; // 200 feet
+        
         const COLORS = {
             READY: '#0072B2',
             CONSTRAINED: '#D55E00'
         };
 
-        let map, loadLayer, genLayer, addressMarker, legend;
-        let loadGeoJSON, genGeoJSON;
-        let activeLayerName = "Load";
+        let map, activeLayer = 'load', addressMarker;
 
-        map = L.map('map').setView([41.65, -71.45], 10);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
-            attribution: '© CARTO' 
-        }).addTo(map);
+        // Register PMTiles protocol
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol("pmtiles", protocol.tile);
 
-        function getWeight(zoom) {
-            if (zoom < 11) return 1.5;
-            if (zoom < 13) return 2.5;
-            return 4;
-        }
-
-        map.on('zoomend', () => {
-            const weight = getWeight(map.getZoom());
-            if (loadLayer) loadLayer.setStyle({ weight });
-            if (genLayer) genLayer.setStyle({ weight });
+        // Initialize map
+        map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    'carto': {
+                        type: 'raster',
+                        tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+                        tileSize: 256
+                    },
+                    'load': {
+                        type: 'vector',
+                        url: `pmtiles://${LOAD_PMTILES_URL}`
+                    },
+                    'gen': {
+                        type: 'vector',
+                        url: `pmtiles://${GEN_PMTILES_URL}`
+                    }
+                },
+                layers: [
+                    {
+                        id: 'background',
+                        type: 'raster',
+                        source: 'carto'
+                    },
+                    {
+                        id: 'load-lines',
+                        type: 'line',
+                        source: 'load',
+                        'source-layer': 'load_capacity',
+                        paint: {
+                            'line-color': ['case',
+                                ['==', ['get', 'constrained'], 1], COLORS.CONSTRAINED,
+                                COLORS.READY
+                            ],
+                            'line-width': ['interpolate', ['linear'], ['zoom'],
+                                10, 1.5,
+                                13, 2.5,
+                                16, 4
+                            ],
+                            'line-opacity': 0.8
+                        },
+                        layout: { visibility: 'visible' }
+                    },
+                    {
+                        id: 'gen-lines',
+                        type: 'line',
+                        source: 'gen',
+                        'source-layer': 'hosting_capacity',
+                        paint: {
+                            'line-color': ['case',
+                                ['==', ['get', 'constrained'], 1], COLORS.CONSTRAINED,
+                                COLORS.READY
+                            ],
+                            'line-width': ['interpolate', ['linear'], ['zoom'],
+                                10, 1.5,
+                                13, 2.5,
+                                16, 4
+                            ],
+                            'line-opacity': 0.8
+                        },
+                        layout: { visibility: 'none' }
+                    }
+                ]
+            },
+            center: [-71.45, 41.65],
+            zoom: 10
         });
 
-        function flattenFeatures(geojson) {
-            let flattened = [];
-            geojson.features.forEach(feature => {
-                if (feature.geometry.type === 'MultiLineString') {
-                    feature.geometry.coordinates.forEach(coords => {
-                        flattened.push(turf.lineString(coords, feature.properties));
-                    });
-                } else {
-                    flattened.push(feature);
-                }
-            });
-            return { type: "FeatureCollection", features: flattened };
-        }
+        map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+        
+        // Add legend
+        const legend = document.createElement('div');
+        legend.className = 'legend';
+        legend.id = 'dynamic-legend';
+        map.getContainer().appendChild(legend);
+        updateLegend();
 
-        async function init() {
-            try {
-                const [lRes, gRes] = await Promise.all([fetch(LOAD_URL), fetch(GEN_URL)]);
-                if (!lRes.ok || !gRes.ok) throw new Error("Data retrieval failed.");
-                
-                loadGeoJSON = flattenFeatures(await lRes.json());
-                genGeoJSON = flattenFeatures(await gRes.json());
+        map.on('load', () => {
+            document.getElementById('loading-status').style.display = 'none';
+            document.getElementById('check-btn').disabled = false;
+            document.getElementById('check-btn').textContent = 'Check Eligibility';
+        });
 
-                const currentWeight = getWeight(map.getZoom());
-
-                loadLayer = L.geoJSON(loadGeoJSON, {
-                    style: (f) => ({
-                        color: f.properties.load_pct_25 > 90 ? COLORS.CONSTRAINED : COLORS.READY,
-                        weight: currentWeight, opacity: 0.8
-                    })
-                }).addTo(map);
-
-                genLayer = L.geoJSON(genGeoJSON, {
-                    style: (f) => ({
-                        color: f.properties.hosting_capacity_mw < 0.5 ? COLORS.CONSTRAINED : COLORS.READY,
-                        weight: currentWeight, opacity: 0.8
-                    })
-                });
-
-                L.control.layers(
-                    { "Load Status (90% Threshold)": loadLayer, "Hosting Capacity (0.5MW Threshold)": genLayer }, 
-                    null, 
-                    { collapsed: false }
-                ).addTo(map);
-                
-                map.on('baselayerchange', (e) => {
-                    activeLayerName = e.name.includes("Load") ? "Load" : "Gen";
-                    updateLegend();
-                });
-
-                setupLegend();
-                document.getElementById('loading-status').style.display = 'none';
-                document.getElementById('check-btn').disabled = false;
-                document.getElementById('check-btn').textContent = 'Check Eligibility';
-            } catch (e) {
-                document.getElementById('loading-status').innerHTML = `<span style="color:red">Error: ${e.message}</span>`;
+        function toggleLayer(layer) {
+            activeLayer = layer;
+            if (layer === 'load') {
+                map.setLayoutProperty('load-lines', 'visibility', 'visible');
+                map.setLayoutProperty('gen-lines', 'visibility', 'none');
+            } else {
+                map.setLayoutProperty('load-lines', 'visibility', 'none');
+                map.setLayoutProperty('gen-lines', 'visibility', 'visible');
             }
-        }
-
-        function setupLegend() {
-            legend = L.control({position: 'bottomright'});
-            legend.onAdd = () => {
-                const div = L.DomUtil.create('div', 'legend');
-                div.id = "dynamic-legend";
-                return div;
-            };
-            legend.addTo(map);
             updateLegend();
         }
 
         function updateLegend() {
             const div = document.getElementById('dynamic-legend');
-            if (activeLayerName === "Load") {
-                div.innerHTML = `<strong>2025 Load Utilization</strong><br>
-                    <i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (>90%)<br>
-                    <i style="background: ${COLORS.READY}"></i> Capacity Ready (≤90%)`;
+            if (activeLayer === 'load') {
+                div.innerHTML = `<div class="legend-title">2025 Load Utilization</div>
+                    <div><i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (>90%)</div>
+                    <div><i style="background: ${COLORS.READY}"></i> Capacity Ready (≤90%)</div>`;
             } else {
-                div.innerHTML = `<strong>Hosting Capacity</strong><br>
-                    <i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (<0.5 MW)<br>
-                    <i style="background: ${COLORS.READY}"></i> Generation Ready (≥0.5 MW)`;
+                div.innerHTML = `<div class="legend-title">Hosting Capacity</div>
+                    <div><i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (<0.5 MW)</div>
+                    <div><i style="background: ${COLORS.READY}"></i> Generation Ready (≥0.5 MW)</div>`;
             }
         }
 
         map.on('contextmenu', (e) => {
-            const lat = e.latlng.lat;
-            const lon = e.latlng.lng;
-            document.getElementById('address').value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-            performCheck(lat, lon, "Coordinate Selected on Map");
+            const { lng, lat } = e.lngLat;
+            document.getElementById('address').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            performCheck(lat, lng, "Coordinate Selected on Map");
         });
 
         function checkAtCenter() {
@@ -234,39 +257,38 @@
         }
 
         function performCheck(lat, lon, label) {
-            const userPt = turf.point([lon, lat]);
+            const point = [lon, lat];
+            const bbox = [
+                [lon - 0.001, lat - 0.001],
+                [lon + 0.001, lat + 0.001]
+            ];
+
+            // Query both layers
+            const loadFeatures = map.queryRenderedFeatures(
+                map.project(bbox[0]).concat(map.project(bbox[1])),
+                { layers: ['load-lines'] }
+            );
             
-            const getNearby = (geojson, type) => {
-                let found = [];
-                geojson.features.forEach(f => {
-                    const dist = turf.pointToLineDistance(userPt, f, {units: 'kilometers'});
-                    if (dist <= FEET_200_KM) {
-                        const isConstrained = type === 'load' 
-                            ? f.properties.load_pct_25 > 90 
-                            : f.properties.hosting_capacity_mw < 0.5;
-                        found.push({ props: f.properties, isConstrained, dist });
-                    }
-                });
-                return found.sort((a, b) => b.isConstrained - a.isConstrained);
-            };
+            const genFeatures = map.queryRenderedFeatures(
+                map.project(bbox[0]).concat(map.project(bbox[1])),
+                { layers: ['gen-lines'] }
+            );
 
-            const nearbyLoad = getNearby(loadGeoJSON, 'load');
-            const nearbyGen = getNearby(genGeoJSON, 'gen');
-
-            if (nearbyLoad.length === 0) {
+            if (loadFeatures.length === 0) {
                 document.getElementById('result').innerHTML = `
                     <div class="result not-eligible">
                         <h3>No Data</h3>
-                        <p>This location is not within 200 feet of mapped grid infrastructure.</p>
+                        <p>This location is not near mapped grid infrastructure. Try zooming in or selecting a different location.</p>
                     </div>`;
                 return;
             }
 
-            const primaryLoad = nearbyLoad[0];
-            const primaryGen = nearbyGen[0] || { props: { hosting_capacity_mw: 0 }, isConstrained: true };
+            // Get nearest features
+            const primaryLoad = loadFeatures[0].properties;
+            const primaryGen = genFeatures.length > 0 ? genFeatures[0].properties : { hosting_capacity_mw: 0, constrained: 1 };
             
-            const loadConflict = nearbyLoad.some(f => f.isConstrained !== primaryLoad.isConstrained);
-            const genConflict = nearbyGen.some(f => f.isConstrained !== primaryGen.isConstrained);
+            const loadConflict = loadFeatures.some(f => f.properties.constrained !== primaryLoad.constrained);
+            const genConflict = genFeatures.some(f => f.properties.constrained !== primaryGen.constrained);
 
             displayResults({ 
                 label, lat, lon, 
@@ -279,9 +301,9 @@
         function displayResults(data) {
             const resDiv = document.getElementById('result');
             
-            const isHPEligible = !data.load.isConstrained;
-            const isSolarEligible = !data.gen.isConstrained;
-            const isStorageEligible = data.load.isConstrained && data.gen.isConstrained;
+            const isHPEligible = data.load.constrained === 0;
+            const isSolarEligible = data.gen.constrained === 0;
+            const isStorageEligible = data.load.constrained === 1 && data.gen.constrained === 1;
 
             const hpText = isHPEligible 
                 ? 'Great news! Your local electric grid has ample capacity for additional heat pumps.' 
@@ -289,7 +311,7 @@
             
             const storageText = isStorageEligible 
                 ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days when demand from A/C is high, while taking power from solar panels on sunny, mild days. Building storage at this location can allow more customers to install heat pumps, electric appliances, EV chargers, and solar photovoltaic generation.' 
-                : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive. Your feeder is not currently highly loaded (2025 peak load $\\le$ 90%) or does not have high generation utilization ($>0.5$ MW), meaning storage is not critical for immediate capacity relief.";
+                : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive. Your feeder is not currently highly loaded (2025 peak load > 90%) or does not have high generation utilization (≥0.5 MW), meaning storage is not critical for immediate capacity relief.";
             
             const solarText = isSolarEligible 
                 ? 'Great news! Your local grid has sufficient hosting capacity (0.5 MW or more) for new solar photovoltaic generation. You are eligible for standard solar incentives.' 
@@ -321,21 +343,29 @@
                     ${data.hasConflict ? `
                     <div class="conflict-warning">
                         <span>⚠️</span>
-                        <div><strong>Multi-Feeder Area:</strong> This property is near multiple circuits with different constraint profiles. Eligibility is displayed for the most constrained feeder found within 200ft.</div>
+                        <div><strong>Multi-Feeder Area:</strong> This property is near multiple circuits with different constraint profiles. Eligibility is displayed for the most constrained feeder found nearby.</div>
                     </div>` : ''}
 
                     <div style="font-size:11px; margin-top:20px; border-top:1px solid #ddd; padding-top:10px; color: #888;">
-                        Primary Feeder: ${data.load.props.Feeder} | 2025 Load: ${data.load.props.load_pct_25}% | Hosting Capacity: ${data.gen.props.hosting_capacity_mw} MW
+                        Primary Feeder: ${data.load.Feeder} | 2025 Load: ${data.load.load_pct_25}% | Hosting Capacity: ${data.gen.hosting_capacity_mw} MW
                     </div>
                 </div>
             `;
 
-            if (addressMarker) map.removeLayer(addressMarker);
-            addressMarker = L.circleMarker([data.lat, data.lon], { color: '#7030A0', radius: 10, fillOpacity: 1 }).addTo(map);
-            map.setView([data.lat, data.lon], 16);
+            // Add marker
+            if (addressMarker) addressMarker.remove();
+            const el = document.createElement('div');
+            el.style.width = '20px';
+            el.style.height = '20px';
+            el.style.borderRadius = '50%';
+            el.style.backgroundColor = '#7030A0';
+            el.style.border = '2px solid white';
+            addressMarker = new maplibregl.Marker({ element: el })
+                .setLngLat([data.lon, data.lat])
+                .addTo(map);
+            
+            map.flyTo({ center: [data.lon, data.lat], zoom: 16 });
         }
-
-        init();
     </script>
 </body>
 </html>
