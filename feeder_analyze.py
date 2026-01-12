@@ -31,6 +31,13 @@ def remove_branches_and_simplify(input_path, output_path, type='load'):
         return
 
     # --- Setup and Data Cleaning (Omitted for brevity, logic remains the same) ---
+    try:
+        gdf = gpd.read_file(input_path)
+    except Exception as e:
+        print(f"Error reading file {input_path}: {e}")
+        return
+
+    # --- Setup and Data Cleaning (Omitted for brevity, logic remains the same) ---
     if type == 'load':
         gdf['FIRST_F2034_Peak_MVA'] = pd.to_numeric(gdf['FIRST_F2034_Peak_MVA'], errors='coerce')
         gdf['FIRST_Summer_Rating__MVA_'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
@@ -39,7 +46,21 @@ def remove_branches_and_simplify(input_path, output_path, type='load'):
         gdf['Peak_34'] = 0.0
         gdf.loc[valid_ratings, 'Peak_34'] = (gdf.loc[valid_ratings, 'FIRST_F2034_Peak_MVA'] / gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100).round(1)
         gdf['Ready'] = ((gdf['FIRST_F2025_Peak__'] < 0.85) & (gdf['Peak_34'] < 95)).map({True: 'Y', False: 'N'})
+        gdf['FIRST_F2034_Peak_MVA'] = pd.to_numeric(gdf['FIRST_F2034_Peak_MVA'], errors='coerce')
+        gdf['FIRST_Summer_Rating__MVA_'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
+        gdf['FIRST_F2025_Peak__'] = pd.to_numeric(gdf['FIRST_F2025_Peak__'], errors='coerce')
+        valid_ratings = gdf['FIRST_Summer_Rating__MVA_'].fillna(0) != 0
+        gdf['Peak_34'] = 0.0
+        gdf.loc[valid_ratings, 'Peak_34'] = (gdf.loc[valid_ratings, 'FIRST_F2034_Peak_MVA'] / gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100).round(1)
+        gdf['Ready'] = ((gdf['FIRST_F2025_Peak__'] < 0.85) & (gdf['Peak_34'] < 95)).map({True: 'Y', False: 'N'})
         cols = ['Feeder', 'Peak_34', 'Ready', 'geometry']
+        id_col = 'Feeder'
+    else: # type == 'gen'
+        gdf['HC'] = pd.to_numeric(gdf['HC'], errors='coerce')
+        gdf['Feeder_SN'] = pd.to_numeric(gdf['Feeder_SN'], errors='coerce')
+        valid_sn = gdf['Feeder_SN'].fillna(0) != 0
+        gdf['Util'] = 0.0
+        gdf.loc[valid_sn, 'Util'] = ((1 - (gdf.loc[valid_sn, 'HC'] / gdf.loc[valid_sn, 'Feeder_SN'])) * 100).round(1)
         id_col = 'Feeder'
     else: # type == 'gen'
         gdf['HC'] = pd.to_numeric(gdf['HC'], errors='coerce')
