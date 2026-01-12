@@ -1,3 +1,4 @@
 # Ignore specific large raw data files
 ri_hosting_capacity_2025.geojson
 ri_load_capacity_2025.geojson
+ri_storage_screen.json

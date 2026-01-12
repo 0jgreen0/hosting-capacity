@@ -1,147 +1,403 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Incentive Screening Tool</title>
-    <meta charset="utf-8" />
+    <title>Utility Incentive Eligibility Checker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/topojson-client@3"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #map { height: 100vh; width: 100%; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; }
+        h2 { color: #015473; margin-top: 0; }
         
-        /* Loading Spinner Styles */
-        #loader-container {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255,255,255,0.9);
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-            z-index: 1000;
-        }
-        .spinner {
-            width: 50px; height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .main-container { display: flex; gap: 20px; flex-wrap: wrap; }
+        .form-section { flex: 1; min-width: 350px; }
+        .guide-section { width: 300px; background: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; }
+        
+        #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; z-index: 1; }
+        
+        .result { padding: 20px; margin: 15px 0; border-radius: 6px; border-width: 2px; border-style: solid; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .eligible { background: #eef6fb; border-color: #005a8d; }
+        .not-eligible { background: #fff5eb; border-color: #d95f02; }
+        .error-box { background: #f2f2f2; border-color: #757575; }
+        
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #015473; margin-top: 15px; }
+        .input-group input, .input-group select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
+        .input-group button { width: 100%; margin-top: 20px; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; transition: background 0.2s; }
+        .input-group button:hover { background-color: #005a8d; }
+        .input-group button:disabled { background-color: #ccc; cursor: not-allowed; }
+        
+        .status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; color: white; margin-top: 5px; }
+        .pill-yes { background-color: #2ecc71; }
+        .pill-no { background-color: #e74c3c; }
+        .pill-storage { background-color: #005a8d; }
+        .pill-solar { background-color: #f39c12; }
 
-        /* Custom Legend Styles */
-        .info {
-            padding: 6px 8px;
-            font: 14px/16px Arial, Helvetica, sans-serif;
-            background: white;
-            background: rgba(255,255,255,0.8);
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
-            border-radius: 5px;
+        .guide-section h4 { margin-top: 0; color: #015473; border-bottom: 2px solid #068DBC; padding-bottom: 5px; }
+        .guide-item { margin-bottom: 12px; }
+        .guide-item strong { display: block; color: #444; }
+
+        .disclaimer-box { margin-top: 30px; font-size: 13px; color: #666; border-top: 1px solid #ccc; padding-top: 15px; }
+        
+        #loader { display: none; font-style: italic; color: #068DBC; margin-top: 10px; }
+        #loading-status { display: block; font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
+
+        .loader-circle { 
+            width: 20px; 
+            height: 20px; 
+            border: 3px solid #f3f3f3; 
+            border-top: 3px solid #068DBC; 
+            border-radius: 50%; 
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 5px;
         }
-        .legend {
-            line-height: 18px;
-            color: #555;
-        }
-        .legend i {
-            width: 18px;
-            height: 18px;
-            float: left;
-            margin-right: 8px;
-            opacity: 0.7;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
+
 <body>
+    <h2>Utility Incentive Eligibility Checker</h2>
 
-<div id="loader-container">
-    <div class="spinner"></div>
-    <p>Loading Rhode Island Circuit Data...</p>
-</div>
+    <div class="main-container">
+        <div class="form-section">
+            <div class="input-group">
+                <label for="utility-select">1. Utility Provider</label>
+                <select id="utility-select">
+                    <option value="ri-energy">Rhode Island Energy</option>
+                    <option value="other">Other Utility</option>
+                </select>
+                
+                <label for="address">2. Property Address</label>
+                <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
+                
+                <button id="check-btn" onclick="checkAddress()" disabled>Loading data...</button>
+                <div id="loading-status"><span class="loader-circle"></span> Loading grid data...</div>
+                <div id="loader">Analyzing grid capacity...</div>
+            </div>
+            <div id="result"></div>
+        </div>
 
-<div id="map"></div>
-
-<script>
-    // Initialize Map
-    const map = L.map('map').setView([41.6, -71.5], 10);
+        <div class="guide-section">
+            <h4>Quick Guide</h4>
+            <div class="guide-item">
+                <strong>Load Utilization (Map Layer)</strong>
+                Shows feeders constrained by high current (>85%) or future (>95%) load in **RED**.
+            </div>
+            <div class="guide-item">
+                <strong>Generation Utilization (Map Layer)</strong>
+                Shows networks constrained by existing generation (>90%) in **RED**.
+            </div>
+            <div class="guide-item">
+                <strong>How it works</strong>
+                We geocode your address and find the nearest electrical circuit (feeder) to determine your local grid status.
+            </div>
+        </div>
+    </div>
     
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
+    <div id="map"></div>
 
-    // Track loading status of both files
-    let layersLoaded = 0;
-    function checkLoad() {
-        layersLoaded++;
-        if (layersLoaded === 2) {
-            document.getElementById('loader-container').style.display = 'none';
+    <div class="disclaimer-box">
+        <p><strong>Disclaimer:</strong> This tool reflects simplified data from the RI System Data Portal. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability. Verified data can be found at the <a href="https://portalconnect.rienergy.com/RI/s/article/Rhode-Island-System-Data-Portal" target="_blank">RI Energy Portal</a>.</p>
+    </div>
+
+    <script>
+        // GitHub raw URLs
+        const LOAD_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
+        const GEN_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
+
+        let map, loadLayer, genLayer, addressMarker;
+        let loadGeoJSON, genGeoJSON;
+        let dataLoaded = false;
+
+        // Initialize Map
+        map = L.map('map').setView([41.65, -71.45], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        document.getElementById('address').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('check-btn').click();
+            }
+        });
+        
+        // Load data with proper error handling
+        async function loadFeederData() {
+            const loadingStatus = document.getElementById('loading-status');
+            const checkBtn = document.getElementById('check-btn');
+            
+            try {
+                loadingStatus.innerHTML = '<span class="loader-circle"></span> Loading grid data...';
+                
+                // Load load and gen files concurrently
+                const [loadResponse, genResponse] = await Promise.all([
+                    fetch(LOAD_SCREEN_URL),
+                    fetch(GEN_SCREEN_URL)
+                ]);
+                
+                if (!loadResponse.ok || !genResponse.ok) {
+                    throw new Error(`HTTP error: Load=${loadResponse.status}, Gen=${genResponse.status}`);
+                }
+                
+                const [loadData, genData] = await Promise.all([
+                    loadResponse.json(),
+                    genResponse.json()
+                ]);
+                
+                loadGeoJSON = loadData;
+                genGeoJSON = genData;
+                
+                // --- 1. Load Layer (Load Capacity & HP Eligibility) ---
+                loadLayer = L.geoJSON(loadGeoJSON, {
+                    style: (f) => {
+                        const peak25 = f.properties.load_peak_25;
+                        const peak34 = f.properties.load_peak_34;
+                        
+                        // NEW MAP COLORING LOGIC: Red if peak25 > 85 OR peak34 > 95
+                        const isConstrained = (peak25 > 85) || (peak34 > 95);
+
+                        return {
+                            color: isConstrained ? '#e74c3c' : '#2ecc71', // Red if constrained, Green otherwise
+                            weight: 4, 
+                            opacity: 0.8
+                        };
+                    },
+                    onEachFeature: (feature, layer) => {
+                        layer.bindPopup(`
+                            <strong>Feeder:</strong> ${feature.properties.Feeder}<br>
+                            <strong>HP Ready:</strong> ${feature.properties.HP_Ready}<br>
+                            <strong>2025 Peak:</strong> ${feature.properties.load_peak_25}%<br>
+                            <strong>2034 Peak:</strong> ${feature.properties.load_peak_34}%
+                        `);
+                    }
+                }).addTo(map); // Add Load layer to map by default
+
+                // --- 2. Gen Layer (Generation Capacity & Solar Eligibility) ---
+                genLayer = L.geoJSON(genGeoJSON, {
+                    style: (f) => {
+                        const genUtil = f.properties.gen_util;
+                        
+                        // NEW MAP COLORING LOGIC: Red if gen_util > 90
+                        const isConstrained = (genUtil > 90);
+
+                        return {
+                            color: isConstrained ? '#e74c3c' : '#f39c12', // Red if constrained, Orange/Yellow otherwise
+                            weight: 3, 
+                            dashArray: '5, 5', 
+                            opacity: 0.6
+                        };
+                    },
+                    onEachFeature: (feature, layer) => {
+                        layer.bindPopup(`
+                            <strong>Network:</strong> ${feature.properties.Network_ID}<br>
+                            <strong>Utilization:</strong> ${feature.properties.gen_util}%
+                        `);
+                    }
+                });
+                
+                // Add Layer Control
+                L.control.layers({
+                    "Load Utilization (Map Constraint View)": loadLayer, // Default base layer
+                    "Generation Utilization (Map Constraint View)": genLayer
+                }, null, {collapsed: false}).addTo(map);
+                
+                dataLoaded = true;
+                loadingStatus.style.display = 'none';
+                checkBtn.disabled = false;
+                checkBtn.textContent = 'Check Eligibility';
+                
+            } catch (error) {
+                console.error('Data loading error:', error);
+                loadingStatus.innerHTML = `Error loading data: ${error.message}`;
+                loadingStatus.style.color = '#e74c3c';
+            }
         }
-    }
 
-    // GitHub Raw URLs (Targeting 'main' branch)
-    const loadScreenUrl = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
-    const genScreenUrl = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
+        loadFeederData();
 
-    // --- 1. Load Screen Layer ---
-    fetch(loadScreenUrl)
-        .then(res => {
-            if (!res.ok) throw new Error('Network response was not ok');
-            return res.json();
-        })
-        .then(topology => {
-            const geojson = topojson.feature(topology, topology.objects.ri_load_screen);
+        async function checkAddress() {
+            if (!dataLoaded) {
+                alert('Data is still loading. Please wait.');
+                return;
+            }
             
-            L.geoJSON(geojson, {
-                style: (f) => ({
-                    color: f.properties.HP_Electrification_Ready === 'YES' ? '#2ecc71' : '#e74c3c',
-                    weight: 3,
-                    opacity: 0.8
-                }),
-                onEachFeature: (f, l) => {
-                    l.bindPopup(`
-                        <strong>Feeder:</strong> ${f.properties.Feeder}<br>
-                        <strong>Electrification Ready:</strong> ${f.properties.HP_Electrification_Ready}
-                    `);
-                }
-            }).addTo(map);
-            checkLoad();
-        })
-        .catch(err => {
-            console.error('Error loading load screen:', err);
-            checkLoad(); // Prevent loader from being stuck
-        });
-
-    // --- 2. Generation Screen Layer ---
-    fetch(genScreenUrl)
-        .then(res => {
-            if (!res.ok) throw new Error('Network response was not ok');
-            return res.json();
-        })
-        .then(topology => {
-            const geojson = topojson.feature(topology, topology.objects.ri_generation_screen);
+            const utility = document.getElementById('utility-select').value;
+            const address = document.getElementById('address').value.trim();
+            const resultDiv = document.getElementById('result');
+            const loader = document.getElementById('loader');
             
-            L.geoJSON(geojson, {
-                style: (f) => ({
-                    color: f.properties.Gen_Utilization_Pct > 80 ? '#f39c12' : '#3498db',
-                    weight: 2,
-                    dashArray: '5, 5',
-                    opacity: 0.7
-                }),
-                onEachFeature: (f, l) => {
-                    l.bindPopup(`
-                        <strong>Network ID:</strong> ${f.properties.Network_ID}<br>
-                        <strong>Generation Utilization:</strong> ${f.properties.Gen_Utilization_Pct}%
-                    `);
-                }
-            }).addTo(map);
-            checkLoad();
-        })
-        .catch(err => {
-            console.error('Error loading generation screen:', err);
-            checkLoad(); // Prevent loader from being stuck
-        });
-</script>
+            if (utility !== 'ri-energy') {
+                resultDiv.innerHTML = `<div class="result error-box"><h3>Utility Not Supported</h3><p>This tool currently supports Rhode Island Energy only.</p></div>`;
+                return;
+            }
+            if (!address) { 
+                alert('Please enter an address.'); 
+                return; 
+            }
 
+            resultDiv.innerHTML = "";
+            loader.style.display = "block";
+
+            try {
+                // 1. Geocoding
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&countrycodes=us&limit=1`,
+                    { headers: { 'User-Agent': 'RI-Incentive-Checker' } }
+                );
+                
+                if (!response.ok) {
+                    throw new Error('Geocoding service unavailable');
+                }
+                
+                const geoData = await response.json();
+                if (geoData.length === 0) {
+                    throw new Error("Address not found. Please check spelling and include city/state.");
+                }
+
+                const lat = parseFloat(geoData[0].lat);
+                const lon = parseFloat(geoData[0].lon);
+                const userPoint = turf.point([lon, lat]);
+
+                // 2. Find Nearest Feeder (Load)
+                let minLoadDist = Infinity;
+                let nearestLoadFeeder = null;
+
+                loadGeoJSON.features.forEach(f => {
+                    let d;
+                    const f_geom = f.geometry.type === 'MultiLineString' ? turf.multiLineString(f.geometry.coordinates) : turf.lineString(f.geometry.coordinates);
+                    d = turf.pointToLineDistance(userPoint, f_geom, {units: 'kilometers'});
+                    
+                    if (d < minLoadDist) { 
+                        minLoadDist = d; 
+                        nearestLoadFeeder = f; 
+                    }
+                });
+
+                // 3. Find Nearest Network (Gen)
+                let minGenDist = Infinity;
+                let nearestGenFeeder = null;
+
+                genGeoJSON.features.forEach(f => {
+                    let d;
+                    const f_geom = f.geometry.type === 'MultiLineString' ? turf.multiLineString(f.geometry.coordinates) : turf.lineString(f.geometry.coordinates);
+                    d = turf.pointToLineDistance(userPoint, f_geom, {units: 'kilometers'});
+
+                    if (d < minGenDist) { 
+                        minGenDist = d; 
+                        nearestGenFeeder = f; 
+                    }
+                });
+                
+                if (!nearestLoadFeeder || !nearestGenFeeder) {
+                    throw new Error('No nearby feeders found. Address may be outside service area.');
+                }
+                
+                // For eligibility checks, we need both Load and Gen data associated with the point
+                const loadData = nearestLoadFeeder.properties;
+                const genData = nearestGenFeeder.properties;
+                
+                // The Storage eligibility requires BOTH load_peak_25 > 85 AND gen_util > 90
+                const isStorageEligible = (loadData.load_peak_25 > 85) && (genData.gen_util > 90);
+
+                displayResult({
+                    address,
+                    lat, lon,
+                    load: loadData,
+                    gen: genData, 
+                    isStorageEligible: isStorageEligible, // Calculated here
+                    dist_ft: minLoadDist * 3280.84
+                });
+
+            } catch (e) {
+                resultDiv.innerHTML = `<div class="result not-eligible"><h3>Error</h3><p>${e.message}</p></div>`;
+            } finally {
+                loader.style.display = "none";
+            }
+        }
+
+        function displayResult(data) {
+            const res = document.getElementById('result');
+            const loadData = data.load;
+            const genData = data.gen;
+
+            // --- Determine Eligibility ---
+            const isHPEligible = loadData.HP_Ready === 'Y';
+            const isStorageEligible = data.isStorageEligible; // Uses the calculated value
+            const isSolarEligible = genData.gen_util < 90;
+
+            // --- Construct HTML Result ---
+            let htmlContent = `
+                <h3>Eligibility Results for ${data.address}</h3>
+                <p><strong>Detected Feeder (Load):</strong> ${loadData.Feeder} | <strong>Network ID (Gen):</strong> ${genData.Network_ID}</p>
+                <hr>
+
+                <h4>Heat Pump Enhanced Incentive</h4>
+                <p>
+                    <strong>Eligibility:</strong> 
+                    <span class="status-pill ${isHPEligible ? 'pill-yes' : 'pill-no'}">${isHPEligible ? 'YES' : 'NO'}</span>
+                </p>
+                <p>
+                    ${isHPEligible 
+                        ? 'Great news! Your local electric grid had ample capacity for additional heat pumps.' 
+                        : "Unfortunately, your local grid is near its rated capacity and can't handle many more heat pumps without requiring costly upgrades."}
+                </p>
+                <p style="font-size:13px; color:#555;">
+                    Current (2025) Peak Load: <strong>${loadData.load_peak_25}%</strong> | Projected (2034) Peak Load: <strong>${loadData.load_peak_34}%</strong>
+                </p>
+
+                <h4>Storage Enhanced Incentive</h4>
+                <p>
+                    <strong>Eligibility:</strong> 
+                    <span class="status-pill ${isStorageEligible ? 'pill-storage' : 'pill-no'}">${isStorageEligible ? 'YES' : 'NO'}</span>
+                </p>
+                <p>
+                    ${isStorageEligible 
+                        ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days when demand from A/C is high, while taking power from solar panels on sunny, mild days. Building storage at this location can allow more customers to install heat pumps, electric appliances, EV chargers, and solar photovoltaic generation.' 
+                        : "Storage standard incentive applies. Your current local grid conditions do not meet the criteria for an enhanced storage incentive. Your feeder is not currently highly loaded (2025 peak load $\le$ 85%) or does not have high generation utilization ($\le$ 90%), meaning storage is not critical for immediate capacity relief."}
+                </p>
+                <p style="font-size:13px; color:#555;">
+                    Current (2025) Peak Load: <strong>${loadData.load_peak_25}%</strong> | Generation Utilization: <strong>${genData.gen_util}%</strong>
+                </p>
+
+                <h4>Solar Enhanced Incentive</h4>
+                <p>
+                    <strong>Eligibility:</strong> 
+                    <span class="status-pill ${isSolarEligible ? 'pill-solar' : 'pill-no'}">${isSolarEligible ? 'YES' : 'NO'}</span>
+                </p>
+                <p>
+                    ${isSolarEligible 
+                        ? 'Great news! Your local grid has sufficient hosting capacity (under 90% utilization) for new solar photovoltaic generation. You are eligible for standard solar incentives.' 
+                        : "Unfortunately, your local grid has high utilization (90% or more) from existing generation. New solar installations in this area may require costly upgrades or detailed study before interconnection."}
+                </p>
+                <p style="font-size:13px; color:#555;">
+                    Generation Utilization: <strong>${genData.gen_util}%</strong>
+                </p>
+                
+                <p style="font-size:11px; color:#666; margin-top:20px;">
+                    Location approximately ${Math.round(data.dist_ft)} ft from circuit backbone.
+                </p>
+            `;
+
+            res.className = `result ${isHPEligible ? 'eligible' : 'not-eligible'}`;
+            res.innerHTML = htmlContent;
+
+            if (addressMarker) map.removeLayer(addressMarker);
+            addressMarker = L.circleMarker([data.lat, data.lon], {
+                color: '#7030A0', 
+                radius: 8, 
+                fillOpacity: 1
+            }).addTo(map);
+            map.setView([data.lat, data.lon], 15);
+        }
+    </script>
 </body>
 </html>
