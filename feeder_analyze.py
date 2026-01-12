@@ -4,22 +4,19 @@ from shapely.geometry import LineString, MultiLineString
 from shapely.ops import linemerge
 import os
 
-# --- Helper Function to Clean and Merge Geometries (Kept without branch elimination) ---
-
 def process_feeder_geometries(gdf, id_col):
-    """Groups features by ID, merges all LineString segments, and simplifies the result."""
-    
+    """Groups features by ID, merges line segments, and simplifies geometry."""
     SIMPLIFICATION_TOLERANCE = 0.00001 
     processed = []
     
     for name, group in gdf.groupby(id_col):
         all_geoms = group.geometry.values
-        
         line_geoms_to_merge = []
+        
         for geom in all_geoms:
             if geom is None or geom.is_empty:
                 continue
-            elif isinstance(geom, LineString):
+            if isinstance(geom, LineString):
                 line_geoms_to_merge.append(geom)
             elif isinstance(geom, MultiLineString):
                 line_geoms_to_merge.extend(geom.geoms)
@@ -27,14 +24,11 @@ def process_feeder_geometries(gdf, id_col):
         if not line_geoms_to_merge:
             continue
             
-        combined = linemerge(line_geoms_to_merge)
-        geometry_to_simplify = combined 
-            
-        if geometry_to_simplify is None or geometry_to_simplify.is_empty:
+        merged = linemerge(line_geoms_to_merge)
+        if merged is None or merged.is_empty:
             continue
             
-        simplified = geometry_to_simplify.simplify(SIMPLIFICATION_TOLERANCE, preserve_topology=True) 
-        
+        simplified = merged.simplify(SIMPLIFICATION_TOLERANCE, preserve_topology=True) 
         if simplified.is_empty:
             continue
 
@@ -44,11 +38,8 @@ def process_feeder_geometries(gdf, id_col):
 
     return gpd.GeoDataFrame(processed, crs=gdf.crs)
 
-# --- Main Processing Function ---
-
-def create_load_or_gen_screen(input_path, output_path, type):
-    """Reads input data, calculates new metrics, and simplifies feeder geometries."""
-    
+def create_load_or_gen_screen(input_path, output_path, data_type):
+    """Processes input geospatial data to generate raw data screens without flags."""
     print(f"Reading {input_path}...")
     try:
         gdf = gpd.read_file(input_path)
@@ -56,47 +47,33 @@ def create_load_or_gen_screen(input_path, output_path, type):
         print(f"Error reading file {input_path}: {e}")
         return
 
-    # Calculate fields and filter columns
-    if type == 'load':
-        # Safely convert required columns to numeric
-        gdf['FIRST_F2034_Peak_MVA'] = pd.to_numeric(gdf['FIRST_F2034_Peak_MVA'], errors='coerce')
-        gdf['FIRST_Summer_Rating__MVA_'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
-        gdf['FIRST_F2025_Peak_MVA'] = pd.to_numeric(gdf['FIRST_F2025_Peak_MVA'], errors='coerce')
-        gdf['FIRST_F2025_Peak__'] = pd.to_numeric(gdf['FIRST_F2025_Peak__'], errors='coerce') 
+    if data_type == 'load':
+        # Convert 2025 columns to numeric
+        gdf['peak_25_mva'] = pd.to_numeric(gdf['FIRST_F2025_Peak_MVA'], errors='coerce')
+        gdf['rating_mva'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
         
-        # Denominator check
-        valid_ratings = gdf['FIRST_Summer_Rating__MVA_'].fillna(0) != 0
-
-        # Calculate and RENAME key variables
-        gdf['load_peak_34'] = 0.0
-        gdf.loc[valid_ratings, 'load_peak_34'] = (gdf.loc[valid_ratings, 'FIRST_F2034_Peak_MVA'] / gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100).round(1)
-
-        gdf['load_peak_25'] = 0.0
-        gdf.loc[valid_ratings, 'load_peak_25'] = (gdf.loc[valid_ratings, 'FIRST_F2025_Peak_MVA'] / gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100).round(1)
+        # Calculate loading percentage as a raw numeric metric
+        valid_ratings = gdf['rating_mva'].fillna(0) != 0
+        gdf['load_pct_25'] = 0.0
+        gdf.loc[valid_ratings, 'load_pct_25'] = (
+            gdf.loc[valid_ratings, 'peak_25_mva'] / 
+            gdf.loc[valid_ratings, 'rating_mva'] * 100
+        ).round(1)
         
-        # Calculate HP Eligibility Flag (used for TEXT output)
-        gdf['HP_Ready'] = ((gdf['FIRST_F2025_Peak__'] < 0.85) & (gdf['load_peak_34'] < 95)).map({True: 'Y', False: 'N'})
-        
-        cols = ['Feeder', 'load_peak_25', 'load_peak_34', 'HP_Ready', 'geometry']
+        cols = ['Feeder', 'peak_25_mva', 'rating_mva', 'load_pct_25', 'geometry']
         id_col = 'Feeder'
         
-    elif type == 'gen':
-        # Safely convert required columns to numeric
-        gdf['HC'] = pd.to_numeric(gdf['HC'], errors='coerce')
-        gdf['Feeder_SN'] = pd.to_numeric(gdf['Feeder_SN'], errors='coerce')
+    elif data_type == 'gen':
+        # Extract raw Hosting Capacity in MW
+        gdf['hosting_capacity_mw'] = pd.to_numeric(gdf['HC'], errors='coerce').round(2)
         
-        valid_sn = gdf['Feeder_SN'].fillna(0) != 0
-        
-        # Calculate and RENAME key variable
-        gdf['gen_util'] = 0.0
-        gdf.loc[valid_sn, 'gen_util'] = ((1 - (gdf.loc[valid_sn, 'HC'] / gdf.loc[valid_sn, 'Feeder_SN'])) * 100).round(1)
-        
-        cols = ['Network_ID', 'gen_util', 'geometry']
+        cols = ['Network_ID', 'hosting_capacity_mw', 'geometry']
         id_col = 'Network_ID'
     else:
-        print(f"Error: Unknown type '{type}'.")
+        print(f"Error: Unknown type '{data_type}'.")
         return
 
+    # Filter columns and process geometries
     try:
         gdf = gdf[cols].copy()
     except KeyError as e:
@@ -106,20 +83,15 @@ def create_load_or_gen_screen(input_path, output_path, type):
     print("Merging and simplifying geometries...")
     result_gdf = process_feeder_geometries(gdf, id_col)
     
-    # Save with minimal precision
+    # Save output with optimized coordinate precision
     result_gdf.to_file(output_path, driver='GeoJSON', coordinate_precision=4)
     
-    # Output file size and feature count comparison
-    if os.path.exists(input_path) and os.path.exists(output_path):
-        original_size = os.path.getsize(input_path) / 1024
+    if os.path.exists(output_path):
         new_size = os.path.getsize(output_path) / 1024
-        
-        if original_size > 0:
-            print(f"Original: {original_size:.1f} KB → New: {new_size:.1f} KB ({new_size/original_size*100:.1f}%)")
-        print(f"Features: {len(gdf)} → {len(result_gdf)}")
-    print(f"Successfully created {output_path}")
+        print(f"Successfully created {output_path} ({new_size:.1f} KB)")
+        print(f"Features: {len(result_gdf)}")
+    
     return result_gdf
-
 
 # --- Execution ---
 
@@ -128,7 +100,5 @@ GEN_INPUT = "ri_hosting_capacity_2025.geojson"
 LOAD_OUTPUT = "ri_load_screen.json"
 GEN_OUTPUT = "ri_generation_screen.json"
 
-# 1. Create Load and Gen screening files
-# We no longer need the STORAGE_OUTPUT file
-load_gdf = create_load_or_gen_screen(LOAD_INPUT, LOAD_OUTPUT, type='load')
-gen_gdf = create_load_or_gen_screen(GEN_INPUT, GEN_OUTPUT, type='gen')
+load_gdf = create_load_or_gen_screen(LOAD_INPUT, LOAD_OUTPUT, data_type='load')
+gen_gdf = create_load_or_gen_screen(GEN_INPUT, GEN_OUTPUT, data_type='gen')
