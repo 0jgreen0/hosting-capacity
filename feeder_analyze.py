@@ -7,10 +7,8 @@ import os
 def remove_branches_and_simplify(input_path, output_path, type='load'):
     """
     Reads a GeoJSON network file, calculates attributes, groups features by ID,
-    merges connected LineString segments while removing branches (keeping the 
-    longest trunk), simplifies the geometry, and saves the result.
-    
-    Handles input geometries that are LineString or MultiLineString.
+    merges all connected LineString segments within each ID (keeping all branches), 
+    simplifies the geometry using a conservative tolerance, and saves the result.
     """
     print(f"Reading {input_path}...")
     try:
@@ -19,61 +17,40 @@ def remove_branches_and_simplify(input_path, output_path, type='load'):
         print(f"Error reading file {input_path}: {e}")
         return
 
-    # Calculate fields and filter columns
+    # --- Setup and Data Cleaning (Omitted for brevity, logic remains the same) ---
     if type == 'load':
-        # Ensure columns exist and handle potential NaN/non-numeric values before astype(float)
-        # Using .loc and pd.to_numeric for safer conversion
         gdf['FIRST_F2034_Peak_MVA'] = pd.to_numeric(gdf['FIRST_F2034_Peak_MVA'], errors='coerce')
         gdf['FIRST_Summer_Rating__MVA_'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
         gdf['FIRST_F2025_Peak__'] = pd.to_numeric(gdf['FIRST_F2025_Peak__'], errors='coerce')
-
-        # Calculate Peak_34, handling division by zero/NaN rating
         valid_ratings = gdf['FIRST_Summer_Rating__MVA_'].fillna(0) != 0
-        gdf['Peak_34'] = 0.0 # Default value
-        gdf.loc[valid_ratings, 'Peak_34'] = (
-            gdf.loc[valid_ratings, 'FIRST_F2034_Peak_MVA'] / 
-            gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100
-        ).round(1)
-
-        # Calculate Ready
-        gdf['Ready'] = ((gdf['FIRST_F2025_Peak__'] < 0.85) & 
-                        (gdf['Peak_34'] < 95)).map({True: 'Y', False: 'N'})
-        
+        gdf['Peak_34'] = 0.0
+        gdf.loc[valid_ratings, 'Peak_34'] = (gdf.loc[valid_ratings, 'FIRST_F2034_Peak_MVA'] / gdf.loc[valid_ratings, 'FIRST_Summer_Rating__MVA_'] * 100).round(1)
+        gdf['Ready'] = ((gdf['FIRST_F2025_Peak__'] < 0.85) & (gdf['Peak_34'] < 95)).map({True: 'Y', False: 'N'})
         cols = ['Feeder', 'Peak_34', 'Ready', 'geometry']
         id_col = 'Feeder'
     else: # type == 'gen'
         gdf['HC'] = pd.to_numeric(gdf['HC'], errors='coerce')
         gdf['Feeder_SN'] = pd.to_numeric(gdf['Feeder_SN'], errors='coerce')
-
-        # Calculate Util, handling division by zero/NaN rating
         valid_sn = gdf['Feeder_SN'].fillna(0) != 0
-        gdf['Util'] = 0.0 # Default value
-        gdf.loc[valid_sn, 'Util'] = (
-            (1 - (gdf.loc[valid_sn, 'HC'] / 
-                  gdf.loc[valid_sn, 'Feeder_SN'])) * 100
-        ).round(1)
-        
+        gdf['Util'] = 0.0
+        gdf.loc[valid_sn, 'Util'] = ((1 - (gdf.loc[valid_sn, 'HC'] / gdf.loc[valid_sn, 'Feeder_SN'])) * 100).round(1)
         cols = ['Network_ID', 'Util', 'geometry']
         id_col = 'Network_ID'
 
-    # Select required columns and create a copy
-    # Note: Use a try-except/check to ensure all required columns exist in the input file
     try:
         gdf = gdf[cols].copy()
     except KeyError as e:
         print(f"Error: Missing required column {e} in input file.")
         return
 
-    # Group by feeder/network and merge geometries
     print("Merging and simplifying geometries...")
-    
     processed = []
     
-    # Iterate through groups
+    # Iterate through groups (isolating by feeder/network ID)
     for name, group in gdf.groupby(id_col):
         all_geoms = group.geometry.values
         
-        # **Crucial Step: Flatten MultiLineStrings and filter to only individual LineString objects**
+        # Prepare geometries: Flatten MultiLineStrings and filter to only individual LineString objects
         line_geoms_to_merge = []
         for geom in all_geoms:
             if geom is None or geom.is_empty:
@@ -81,35 +58,26 @@ def remove_branches_and_simplify(input_path, output_path, type='load'):
             elif isinstance(geom, LineString):
                 line_geoms_to_merge.append(geom)
             elif isinstance(geom, MultiLineString):
-                # Extract individual LineString components from the MultiLineString
                 line_geoms_to_merge.extend(geom.geoms)
-            # Ignore other geometry types (Point, Polygon)
         
-        # Check if there are any valid LineStrings left to merge
         if not line_geoms_to_merge:
-            # print(f"Warning: No valid LineString geometries found for {id_col}={name}. Skipping.")
             continue
             
         # Merge all individual LineStrings for this feeder/network
-        # This resolves the original NotImplementedError
         combined = linemerge(line_geoms_to_merge)
         
-        # Keep only main trunk (longest segment)
-        if isinstance(combined, MultiLineString):
-            # If linemerge returns multiple segments, keep the longest one (main trunk)
-            main_trunk = max(combined.geoms, key=lambda x: x.length)
-        elif isinstance(combined, LineString):
-            main_trunk = combined
-        else:
-            # Handle cases where linemerge returns other types (e.g., Point if input was just points)
-            # print(f"Warning: Merged geometry is not LineString/MultiLineString for {id_col}={name}. Skipping.")
+        # --- NEW LOGIC: KEEP THE ENTIRE MERGED RESULT (NO BRANCH ELIMINATION) ---
+        # The entire result (which may be a LineString or MultiLineString representing the whole network)
+        geometry_to_simplify = combined 
+            
+        if geometry_to_simplify is None or geometry_to_simplify.is_empty:
             continue
             
-        # Simplify the main trunk
-        simplified = main_trunk.simplify(0.0001, preserve_topology=True)
+        # Simplify the merged geometry with a conservative tolerance
+        # (Using the less aggressive 0.00001 tolerance)
+        simplified = geometry_to_simplify.simplify(0.00001, preserve_topology=True) 
         
         if simplified.is_empty:
-            # print(f"Warning: Simplified geometry is empty for {id_col}={name}. Skipping.")
             continue
 
         # Take first row's properties and assign the new simplified geometry
