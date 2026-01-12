@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Utility Incentive Eligibility Checker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
@@ -9,26 +10,49 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; background-color: #fcfcfc; }
         h2 { color: #015473; margin-top: 0; }
+        
         .main-container { display: flex; flex-direction: column; gap: 20px; }
+        .form-section { width: 100%; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
+        
         #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; z-index: 1; position: relative; }
+        
         .result { padding: 20px; margin: 15px 0; border-radius: 6px; border-width: 2px; border-style: solid; animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
         .eligible { background: #eef6fb; border-color: #005a8d; }
         .not-eligible { background: #fff5eb; border-color: #d95f02; }
-        .conflict-warning { background: #fffbe6; border: 1px solid #ffe58f; padding: 10px; margin-top: 10px; border-radius: 4px; font-size: 13px; color: #856404; }
+        
         .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #015473; margin-top: 15px; }
-        .input-group input, .input-group select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
-        .input-group button { width: 100%; margin-top: 20px; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; }
+        .input-group input, .input-group select { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
+        .input-group button { width: 100%; margin-top: 20px; padding: 14px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; transition: background 0.2s; }
+        .input-group button:hover { background-color: #005a8d; }
+        .input-group button:disabled { background-color: #ccc; cursor: not-allowed; }
+
         .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .status-pill { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 13px; color: white; }
+        .header-row h4 { margin: 0; color: #015473; font-size: 1.1em; }
+
+        .status-pill { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 13px; color: white; min-width: 80px; text-align: center; }
         .pill-yes { background-color: #2ecc71; }
         .pill-no { background-color: #e74c3c; }
-        .legend { padding: 10px; background: white; border: 2px solid #ccc; border-radius: 5px; font-size: 12px; }
-        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.8; border-radius: 2px; }
-        .map-btn { position: absolute; top: 80px; left: 10px; z-index: 1000; background: white; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; padding: 5px 10px; cursor: pointer; font-weight: bold; }
+
+        .legend { padding: 12px; background: white; border: 2px solid #ccc; border-radius: 5px; font-size: 12px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); }
+        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.8; border-radius: 50%; }
+
+        .conflict-warning { background: #fffbe6; border: 1px solid #ffe58f; padding: 12px; margin-top: 15px; border-radius: 4px; font-size: 13px; color: #856404; display: flex; align-items: flex-start; gap: 8px; }
+
+        .map-btn { position: absolute; top: 10px; right: 10px; z-index: 1000; background: white; border: 2px solid rgba(0,0,0,0.2); border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: bold; color: #333; font-size: 13px; }
         .map-btn:hover { background: #f4f4f4; }
+
+        .disclaimer-box { margin-top: 30px; padding: 20px; border: 1px solid #B3B3B3; border-radius: 6px; background-color: #f9f9f9; }
+        .disclaimer-box p { font-size: 13px; color: #444; line-height: 1.6; margin: 0; }
+        .disclaimer-box a { color: #068DBC; text-decoration: none; font-weight: bold; }
+        .disclaimer-box a:hover { text-decoration: underline; }
+
+        .explanation-text { font-size: 13px; color: #555; margin: 5px 0 15px 0; }
+
+        #loading-status { font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
     </style>
 </head>
 
@@ -41,14 +65,14 @@
                 <label for="utility-select">1. Utility Provider</label>
                 <select id="utility-select">
                     <option value="ri-energy">Rhode Island Energy</option>
-                    <option value="crewd">Other Providers (Not Eligible)</option>
+                    <option value="other">Other Providers (Ineligible)</option>
                 </select>
                 
                 <label for="address">2. Property Address (or Right-Click Map)</label>
                 <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
                 
                 <button id="check-btn" onclick="handleFormSubmit()" disabled>Loading data...</button>
-                <div id="loading-status" style="font-size: 14px; color: #068DBC; margin-top: 10px;">Initializing grid data...</div>
+                <div id="loading-status">Initializing grid data layers...</div>
             </div>
             <div id="result"></div>
         </div>
@@ -58,51 +82,100 @@
         <button class="map-btn" onclick="checkAtCenter()">📍 Pin Map Center</button>
     </div>
 
+    <div class="disclaimer-box">
+        <p><strong>Disclaimer:</strong> This tool reflects data from the RI System Data Portal. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability. Verified data can be found at the <a href="https://portalconnect.rienergy.com/RI/s/article/Rhode-Island-System-Data-Portal" target="_blank">RI Energy Portal</a>.</p>
+    </div>
+
     <script>
         const LOAD_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
         const GEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
         const FEET_200_KM = 0.06096;
 
+        const COLORS = {
+            READY: '#0072B2',
+            CONSTRAINED: '#D55E00'
+        };
+
         let map, loadLayer, genLayer, addressMarker, legend;
         let loadGeoJSON, genGeoJSON;
         let activeLayerName = "Load";
 
-        // Initialize Map
         map = L.map('map').setView([41.65, -71.45], 10);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© CARTO' }).addTo(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
+            attribution: '© CARTO' 
+        }).addTo(map);
 
-        // Load Data
+        function getWeight(zoom) {
+            if (zoom < 11) return 1.5;
+            if (zoom < 13) return 2.5;
+            return 4;
+        }
+
+        map.on('zoomend', () => {
+            const weight = getWeight(map.getZoom());
+            if (loadLayer) loadLayer.setStyle({ weight });
+            if (genLayer) genLayer.setStyle({ weight });
+        });
+
+        function flattenFeatures(geojson) {
+            let flattened = [];
+            geojson.features.forEach(feature => {
+                if (feature.geometry.type === 'MultiLineString') {
+                    feature.geometry.coordinates.forEach(coords => {
+                        flattened.push(turf.lineString(coords, feature.properties));
+                    });
+                } else {
+                    flattened.push(feature);
+                }
+            });
+            return { type: "FeatureCollection", features: flattened };
+        }
+
         async function init() {
             try {
                 const [lRes, gRes] = await Promise.all([fetch(LOAD_URL), fetch(GEN_URL)]);
-                loadGeoJSON = await lRes.json();
-                genGeoJSON = await gRes.json();
+                if (!lRes.ok || !gRes.ok) throw new Error("Data retrieval failed.");
+                
+                loadGeoJSON = flattenFeatures(await lRes.json());
+                genGeoJSON = flattenFeatures(await gRes.json());
+
+                const currentWeight = getWeight(map.getZoom());
 
                 loadLayer = L.geoJSON(loadGeoJSON, {
-                    style: (f) => ({ color: f.properties.load_pct_25 > 90 ? '#e74c3c' : '#2ecc71', weight: 4, opacity: 0.8 })
+                    style: (f) => ({
+                        color: f.properties.load_pct_25 > 90 ? COLORS.CONSTRAINED : COLORS.READY,
+                        weight: currentWeight, opacity: 0.8
+                    })
                 }).addTo(map);
 
                 genLayer = L.geoJSON(genGeoJSON, {
-                    style: (f) => ({ color: f.properties.hosting_capacity_mw < 0.5 ? '#e74c3c' : '#f39c12', weight: 4, opacity: 0.8 })
+                    style: (f) => ({
+                        color: f.properties.hosting_capacity_mw < 0.5 ? COLORS.CONSTRAINED : COLORS.READY,
+                        weight: currentWeight, opacity: 0.8
+                    })
                 });
 
-                L.control.layers({ "Load Status": loadLayer, "Generation Capacity": genLayer }, null, {collapsed: false}).addTo(map);
+                L.control.layers(
+                    { "Load Status (90% Threshold)": loadLayer, "Hosting Capacity (0.5MW Threshold)": genLayer }, 
+                    null, 
+                    { collapsed: false }
+                ).addTo(map);
                 
                 map.on('baselayerchange', (e) => {
                     activeLayerName = e.name.includes("Load") ? "Load" : "Gen";
                     updateLegend();
                 });
 
-                addLegend();
+                setupLegend();
                 document.getElementById('loading-status').style.display = 'none';
                 document.getElementById('check-btn').disabled = false;
                 document.getElementById('check-btn').textContent = 'Check Eligibility';
             } catch (e) {
-                document.getElementById('loading-status').textContent = "Error loading data.";
+                document.getElementById('loading-status').innerHTML = `<span style="color:red">Error: ${e.message}</span>`;
             }
         }
 
-        function addLegend() {
+        function setupLegend() {
             legend = L.control({position: 'bottomright'});
             legend.onAdd = () => {
                 const div = L.DomUtil.create('div', 'legend');
@@ -116,29 +189,41 @@
         function updateLegend() {
             const div = document.getElementById('dynamic-legend');
             if (activeLayerName === "Load") {
-                div.innerHTML = `<strong>2025 Load Status</strong><br>
-                    <i style="background: #e74c3c"></i> Constrained (>90%)<br>
-                    <i style="background: #2ecc71"></i> Capacity Available (<90%)`;
+                div.innerHTML = `<strong>2025 Load Utilization</strong><br>
+                    <i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (>90%)<br>
+                    <i style="background: ${COLORS.READY}"></i> Capacity Ready (≤90%)`;
             } else {
                 div.innerHTML = `<strong>Hosting Capacity</strong><br>
-                    <i style="background: #e74c3c"></i> Constrained (<0.5 MW)<br>
-                    <i style="background: #f39c12"></i> Ready (>0.5 MW)`;
+                    <i style="background: ${COLORS.CONSTRAINED}"></i> Constrained (<0.5 MW)<br>
+                    <i style="background: ${COLORS.READY}"></i> Generation Ready (≥0.5 MW)`;
             }
         }
 
-        // Interaction Handlers
         map.on('contextmenu', (e) => {
-            document.getElementById('address').value = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
-            performCheck(e.latlng.lat, e.latlng.lng, "Selected Map Location");
+            const lat = e.latlng.lat;
+            const lon = e.latlng.lng;
+            document.getElementById('address').value = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+            performCheck(lat, lon, "Coordinate Selected on Map");
         });
 
         function checkAtCenter() {
             const center = map.getCenter();
-            performCheck(center.lat, center.lng, "Map Center Location");
+            performCheck(center.lat, center.lng, "Map Center Position");
         }
 
         async function handleFormSubmit() {
             const addr = document.getElementById('address').value;
+            const util = document.getElementById('utility-select').value;
+
+            if (util !== 'ri-energy') {
+                document.getElementById('result').innerHTML = `
+                    <div class="result not-eligible">
+                        <h3>Ineligible</h3>
+                        <p>Enhanced incentives are currently only available for Rhode Island Energy customers.</p>
+                    </div>`;
+                return;
+            }
+
             if (!addr) return;
             try {
                 const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
@@ -152,70 +237,95 @@
             const userPt = turf.point([lon, lat]);
             
             const getNearby = (geojson, type) => {
-                let results = [];
+                let found = [];
                 geojson.features.forEach(f => {
                     const dist = turf.pointToLineDistance(userPt, f, {units: 'kilometers'});
                     if (dist <= FEET_200_KM) {
-                        const isConstrained = type === 'load' ? f.properties.load_pct_25 > 90 : f.properties.hosting_capacity_mw < 0.5;
-                        results.push({ props: f.properties, isConstrained, dist });
+                        const isConstrained = type === 'load' 
+                            ? f.properties.load_pct_25 > 90 
+                            : f.properties.hosting_capacity_mw < 0.5;
+                        found.push({ props: f.properties, isConstrained, dist });
                     }
                 });
-                return results.sort((a, b) => b.isConstrained - a.isConstrained); // Most constrained first
+                return found.sort((a, b) => b.isConstrained - a.isConstrained);
             };
 
             const nearbyLoad = getNearby(loadGeoJSON, 'load');
             const nearbyGen = getNearby(genGeoJSON, 'gen');
 
             if (nearbyLoad.length === 0) {
-                document.getElementById('result').innerHTML = "No utility infrastructure found within 200ft.";
+                document.getElementById('result').innerHTML = `
+                    <div class="result not-eligible">
+                        <h3>No Data</h3>
+                        <p>This location is not within 200 feet of mapped grid infrastructure.</p>
+                    </div>`;
                 return;
             }
 
-            const bestLoad = nearbyLoad[0];
-            const bestGen = nearbyGen[0] || { props: { hosting_capacity_mw: 0 }, isConstrained: true };
+            const primaryLoad = nearbyLoad[0];
+            const primaryGen = nearbyGen[0] || { props: { hosting_capacity_mw: 0 }, isConstrained: true };
             
-            // Conflict Flags
-            const loadConflict = nearbyLoad.some(f => f.isConstrained !== bestLoad.isConstrained);
-            const genConflict = nearbyGen.some(f => f.isConstrained !== bestGen.isConstrained);
+            const loadConflict = nearbyLoad.some(f => f.isConstrained !== primaryLoad.isConstrained);
+            const genConflict = nearbyGen.some(f => f.isConstrained !== primaryGen.isConstrained);
 
-            displayResults({
-                label, lat, lon,
-                load: bestLoad,
-                gen: bestGen,
-                hasConflict: loadConflict || genConflict
+            displayResults({ 
+                label, lat, lon, 
+                load: primaryLoad, 
+                gen: primaryGen, 
+                hasConflict: loadConflict || genConflict 
             });
         }
 
         function displayResults(data) {
             const resDiv = document.getElementById('result');
-            const hpEligible = !data.load.isConstrained;
-            const solarEligible = !data.gen.isConstrained;
-            // Storage: Only if both are constrained (High Value Area)
-            const storageEligible = data.load.isConstrained && data.gen.isConstrained;
+            
+            const isHPEligible = !data.load.isConstrained;
+            const isSolarEligible = !data.gen.isConstrained;
+            const isStorageEligible = data.load.isConstrained && data.gen.isConstrained;
+
+            const hpText = isHPEligible 
+                ? 'Great news! Your local electric grid has ample capacity for additional heat pumps.' 
+                : "Unfortunately, your local grid is near its rated capacity and cannot handle many more heat pumps without requiring costly upgrades.";
+            
+            const storageText = isStorageEligible 
+                ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days when demand from A/C is high, while taking power from solar panels on sunny, mild days. Building storage at this location can allow more customers to install heat pumps, electric appliances, EV chargers, and solar photovoltaic generation.' 
+                : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive. Your feeder is not currently highly loaded (2025 peak load $\\le$ 90%) or does not have high generation utilization ($>0.5$ MW), meaning storage is not critical for immediate capacity relief.";
+            
+            const solarText = isSolarEligible 
+                ? 'Great news! Your local grid has sufficient hosting capacity (0.5 MW or more) for new solar photovoltaic generation. You are eligible for standard solar incentives.' 
+                : "Unfortunately, your local grid has high utilization (less than 0.5 MW available) from existing generation. New solar installations in this area may require costly upgrades or detailed study before connection.";
 
             resDiv.innerHTML = `
-                <div class="result ${hpEligible ? 'eligible' : 'not-eligible'}">
-                    <h3>Eligibility: ${data.label}</h3>
+                <div class="result ${isHPEligible ? 'eligible' : 'not-eligible'}">
+                    <h3>Screening Results</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;"><strong>Location:</strong> ${data.label}</p>
                     
                     <div class="header-row">
-                        <span>Heat Pump Incentive:</span>
-                        <span class="status-pill ${hpEligible ? 'pill-yes' : 'pill-no'}">${hpEligible ? 'READY' : 'CONSTRAINED'}</span>
+                        <h4>Heat Pump Incentive</h4>
+                        <span class="status-pill ${isHPEligible ? 'pill-yes' : 'pill-no'}">${isHPEligible ? 'READY' : 'CONSTRAINED'}</span>
                     </div>
+                    <div class="explanation-text">${hpText}</div>
 
                     <div class="header-row">
-                        <span>Solar PV Hosting:</span>
-                        <span class="status-pill ${solarEligible ? 'pill-yes' : 'pill-no'}">${solarEligible ? 'READY' : 'CONSTRAINED'}</span>
+                        <h4>Solar PV Hosting</h4>
+                        <span class="status-pill ${isSolarEligible ? 'pill-yes' : 'pill-no'}">${isSolarEligible ? 'READY' : 'CONSTRAINED'}</span>
                     </div>
+                    <div class="explanation-text">${solarText}</div>
 
                     <div class="header-row">
-                        <span>Battery Storage Bonus:</span>
-                        <span class="status-pill ${storageEligible ? 'pill-yes' : 'pill-no'}">${storageEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}</span>
+                        <h4>Battery Storage Bonus</h4>
+                        <span class="status-pill ${isStorageEligible ? 'pill-yes' : 'pill-no'}">${isStorageEligible ? 'ELIGIBLE' : 'NOT ELIGIBLE'}</span>
                     </div>
+                    <div class="explanation-text">${storageText}</div>
 
-                    ${data.hasConflict ? `<div class="conflict-warning">⚠️ <strong>Multi-Feeder Area:</strong> Multiple circuits were found within 200ft with differing constraints. Eligibility shown is based on the most constrained circuit to ensure safety.</div>` : ''}
+                    ${data.hasConflict ? `
+                    <div class="conflict-warning">
+                        <span>⚠️</span>
+                        <div><strong>Multi-Feeder Area:</strong> This property is near multiple circuits with different constraint profiles. Eligibility is displayed for the most constrained feeder found within 200ft.</div>
+                    </div>` : ''}
 
-                    <div style="font-size:11px; margin-top:15px; border-top:1px solid #ddd; padding-top:10px;">
-                        Feeder ID: ${data.load.props.Feeder} | 2025 Load: ${data.load.props.load_pct_25}% | Gen Capacity: ${data.gen.props.hosting_capacity_mw} MW
+                    <div style="font-size:11px; margin-top:20px; border-top:1px solid #ddd; padding-top:10px; color: #888;">
+                        Primary Feeder: ${data.load.props.Feeder} | 2025 Load: ${data.load.props.load_pct_25}% | Hosting Capacity: ${data.gen.props.hosting_capacity_mw} MW
                     </div>
                 </div>
             `;
