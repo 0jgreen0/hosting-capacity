@@ -6,7 +6,6 @@
     
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <script src="https://unpkg.com/topojson-client@3"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <style>
@@ -30,6 +29,7 @@
         .input-group input, .input-group select { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
         .input-group button { width: 100%; margin-top: 20px; padding: 12px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; transition: background 0.2s; }
         .input-group button:hover { background-color: #005a8d; }
+        .input-group button:disabled { background-color: #ccc; cursor: not-allowed; }
         
         .status-pill { display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: bold; font-size: 12px; color: white; margin-top: 5px; }
         .pill-yes { background-color: #2ecc71; }
@@ -42,6 +42,7 @@
         .disclaimer-box { margin-top: 30px; font-size: 13px; color: #666; border-top: 1px solid #ccc; padding-top: 15px; }
         
         #loader { display: none; font-style: italic; color: #068DBC; margin-top: 10px; }
+        #loading-status { display: block; font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
     </style>
 </head>
 
@@ -60,7 +61,8 @@
                 <label for="address">2. Property Address</label>
                 <input id="address" type="text" placeholder="e.g., 123 Main St, Providence, RI">
                 
-                <button onclick="checkAddress()">Check Eligibility</button>
+                <button id="check-btn" onclick="checkAddress()" disabled>Loading data...</button>
+                <div id="loading-status">Loading grid data...</div>
                 <div id="loader">Analyzing grid capacity...</div>
             </div>
             <div id="result"></div>
@@ -86,16 +88,17 @@
     <div id="map"></div>
 
     <div class="disclaimer-box">
-        <p><strong>Disclaimer:</strong> This tool reflects data from the RI System Data Portal. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability. Verified data can be found at the <a href="https://portalconnect.rienergy.com/RI/s/article/Rhode-Island-System-Data-Portal" target="_blank">RI Energy Portal</a>.</p>
+        <p><strong>Disclaimer:</strong> This tool reflects simplified data from the RI System Data Portal. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability. Verified data can be found at the <a href="https://portalconnect.rienergy.com/RI/s/article/Rhode-Island-System-Data-Portal" target="_blank">RI Energy Portal</a>.</p>
     </div>
 
     <script>
-        // Data Sources
+        // GitHub raw URLs (jsDelivr has issues with dashes in repo names)
         const LOAD_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.json';
         const GEN_SCREEN_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.json';
 
         let map, loadLayer, genLayer, addressMarker;
         let loadGeoJSON, genGeoJSON;
+        let dataLoaded = false;
 
         // Initialize Map
         map = L.map('map').setView([41.65, -71.45], 10);
@@ -103,35 +106,102 @@
             attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        // Fetch and Process Data
-        Promise.all([
-            fetch(LOAD_SCREEN_URL).then(r => r.json()),
-            fetch(GEN_SCREEN_URL).then(r => r.json())
-        ]).then(([loadData, genData]) => {
+        // Load data with proper error handling
+        async function loadFeederData() {
+            const loadingStatus = document.getElementById('loading-status');
+            const checkBtn = document.getElementById('check-btn');
             
-            // Convert TopoJSON to GeoJSON
-            loadGeoJSON = topojson.feature(loadData, loadData.objects.ri_load_screen);
-            genGeoJSON = topojson.feature(genData, genData.objects.ri_generation_screen);
+            try {
+                loadingStatus.textContent = 'Loading grid data...';
+                
+                const [loadResponse, genResponse] = await Promise.all([
+                    fetch(LOAD_SCREEN_URL),
+                    fetch(GEN_SCREEN_URL)
+                ]);
+                
+                if (!loadResponse.ok || !genResponse.ok) {
+                    throw new Error(`HTTP error: ${loadResponse.status} / ${genResponse.status}`);
+                }
+                
+                const [loadData, genData] = await Promise.all([
+                    loadResponse.json(),
+                    genResponse.json()
+                ]);
+                
+                // Validate GeoJSON structure
+                if (!loadData.features || !genData.features) {
+                    throw new Error('Invalid GeoJSON structure');
+                }
+                
+                loadGeoJSON = loadData;
+                genGeoJSON = genData;
+                
+                // Create Map Layers with updated property names
+                loadLayer = L.geoJSON(loadGeoJSON, {
+                    style: (f) => ({
+                        color: f.properties.Ready === 'Y' ? '#2ecc71' : '#e74c3c',
+                        weight: 3, 
+                        opacity: 0.8
+                    }),
+                    onEachFeature: (feature, layer) => {
+                        layer.bindPopup(`
+                            <strong>Feeder:</strong> ${feature.properties.Feeder}<br>
+                            <strong>Ready:</strong> ${feature.properties.Ready}<br>
+                            <strong>2034 Peak:</strong> ${feature.properties.Peak_34}%
+                        `);
+                    }
+                }).addTo(map);
 
-            // Create Map Layers
-            loadLayer = L.geoJSON(loadGeoJSON, {
-                style: (f) => ({
-                    color: f.properties.HP_Electrification_Ready === 'YES' ? '#2ecc71' : '#e74c3c',
-                    weight: 3, opacity: 0.8
-                })
-            }).addTo(map);
+                genLayer = L.geoJSON(genGeoJSON, {
+                    style: (f) => ({
+                        color: f.properties.Util > 80 ? '#f39c12' : '#3498db',
+                        weight: 2, 
+                        dashArray: '5, 5', 
+                        opacity: 0.6
+                    }),
+                    onEachFeature: (feature, layer) => {
+                        layer.bindPopup(`
+                            <strong>Network:</strong> ${feature.properties.Network_ID}<br>
+                            <strong>Utilization:</strong> ${feature.properties.Util}%
+                        `);
+                    }
+                });
 
-            genLayer = L.geoJSON(genGeoJSON, {
-                style: (f) => ({
-                    color: f.properties.Gen_Utilization_Pct > 80 ? '#f39c12' : '#3498db',
-                    weight: 2, dashArray: '5, 5', opacity: 0.6
-                })
-            });
+                L.control.layers({
+                    "Load Capacity (Heat Pump)": loadLayer, 
+                    "Generation Capacity (Solar)": genLayer
+                }, null, {collapsed: false}).addTo(map);
+                
+                dataLoaded = true;
+                loadingStatus.style.display = 'none';
+                checkBtn.disabled = false;
+                checkBtn.textContent = 'Check Eligibility';
+                
+                console.log(`Loaded ${loadData.features.length} load feeders, ${genData.features.length} generation feeders`);
+                
+            } catch (error) {
+                console.error('Data loading error:', error);
+                loadingStatus.textContent = 'Error loading data. Please refresh the page.';
+                loadingStatus.style.color = '#e74c3c';
+                document.getElementById('result').innerHTML = `
+                    <div class="result error-box">
+                        <h3>Data Loading Failed</h3>
+                        <p>Unable to load feeder data: ${error.message}</p>
+                        <p>Please check your internet connection and refresh the page.</p>
+                    </div>
+                `;
+            }
+        }
 
-            L.control.layers({"Load (Heat Pump)": loadLayer, "Generation (Solar/Storage)": genLayer}, null, {collapsed: false}).addTo(map);
-        });
+        // Start loading data
+        loadFeederData();
 
         async function checkAddress() {
+            if (!dataLoaded) {
+                alert('Data is still loading. Please wait.');
+                return;
+            }
+            
             const utility = document.getElementById('utility-select').value;
             const address = document.getElementById('address').value.trim();
             const resultDiv = document.getElementById('result');
@@ -141,16 +211,29 @@
                 resultDiv.innerHTML = `<div class="result error-box"><h3>Utility Not Supported</h3><p>This tool currently supports Rhode Island Energy only.</p></div>`;
                 return;
             }
-            if (!address) { alert('Please enter an address.'); return; }
+            if (!address) { 
+                alert('Please enter an address.'); 
+                return; 
+            }
 
             resultDiv.innerHTML = "";
             loader.style.display = "block";
 
             try {
-                // 1. Geocoding
-                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&countrycodes=us&limit=1`);
+                // 1. Geocoding with rate limiting respect
+                const response = await fetch(
+                    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&countrycodes=us&limit=1`,
+                    { headers: { 'User-Agent': 'RI-Incentive-Checker' } }
+                );
+                
+                if (!response.ok) {
+                    throw new Error('Geocoding service unavailable');
+                }
+                
                 const geoData = await response.json();
-                if (geoData.length === 0) throw new Error("Address not found.");
+                if (geoData.length === 0) {
+                    throw new Error("Address not found. Please check spelling and include city/state.");
+                }
 
                 const lat = parseFloat(geoData[0].lat);
                 const lon = parseFloat(geoData[0].lon);
@@ -161,8 +244,22 @@
                 let nearestLoadFeeder = null;
 
                 loadGeoJSON.features.forEach(f => {
-                    const d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
-                    if (d < minLoadDist) { minLoadDist = d; nearestLoadFeeder = f; }
+                    let d;
+                    if (f.geometry.type === 'MultiLineString') {
+                        // For MultiLineString, check each line segment
+                        d = Infinity;
+                        f.geometry.coordinates.forEach(line => {
+                            const lineFeature = turf.lineString(line);
+                            const dist = turf.pointToLineDistance(userPoint, lineFeature, {units: 'kilometers'});
+                            if (dist < d) d = dist;
+                        });
+                    } else {
+                        d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
+                    }
+                    if (d < minLoadDist) { 
+                        minLoadDist = d; 
+                        nearestLoadFeeder = f; 
+                    }
                 });
 
                 // 3. Find Nearest Network (Gen)
@@ -170,9 +267,26 @@
                 let nearestGenFeeder = null;
 
                 genGeoJSON.features.forEach(f => {
-                    const d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
-                    if (d < minGenDist) { minGenDist = d; nearestGenFeeder = f; }
+                    let d;
+                    if (f.geometry.type === 'MultiLineString') {
+                        d = Infinity;
+                        f.geometry.coordinates.forEach(line => {
+                            const lineFeature = turf.lineString(line);
+                            const dist = turf.pointToLineDistance(userPoint, lineFeature, {units: 'kilometers'});
+                            if (dist < d) d = dist;
+                        });
+                    } else {
+                        d = turf.pointToLineDistance(userPoint, f, {units: 'kilometers'});
+                    }
+                    if (d < minGenDist) { 
+                        minGenDist = d; 
+                        nearestGenFeeder = f; 
+                    }
                 });
+
+                if (!nearestLoadFeeder || !nearestGenFeeder) {
+                    throw new Error('No nearby feeders found. Address may be outside service area.');
+                }
 
                 displayResult({
                     address,
@@ -191,28 +305,37 @@
 
         function displayResult(data) {
             const res = document.getElementById('result');
-            const isReady = data.load.HP_Electrification_Ready === 'YES';
+            const isReady = data.load.Ready === 'Y';
 
             res.className = `result ${isReady ? 'eligible' : 'not-eligible'}`;
             res.innerHTML = `
-                <h3>${isReady ? 'Eligible for Enhanced Incentives' : 'Standard Incentives Apply'}</h3>
+                <h3>${isReady ? '✓ Eligible for Enhanced Incentives' : 'Standard Incentives Apply'}</h3>
                 <p><strong>Detected Feeder:</strong> ${data.load.Feeder}</p>
                 <hr>
                 <p>
-                    <strong>Heat Pump Electrification:</strong> 
-                    <span class="status-pill ${isReady ? 'pill-yes' : 'pill-no'}">${data.load.HP_Electrification_Ready}</span>
+                    <strong>Heat Pump Electrification Ready:</strong> 
+                    <span class="status-pill ${isReady ? 'pill-yes' : 'pill-no'}">${data.load.Ready}</span>
                 </p>
                 <p>
-                    <strong>Generation Utilization:</strong> ${data.gen.Gen_Utilization_Pct}%<br>
-                    <small>Network ID: ${data.gen.Network_ID}</small>
+                    <strong>2034 Peak Load Projection:</strong> ${data.load.Peak_34}%
+                    ${data.load.Peak_34 >= 95 ? '<br><small style="color:#d95f02;">⚠ High projected load</small>' : ''}
+                </p>
+                <p>
+                    <strong>Generation Utilization:</strong> ${data.gen.Util}%
+                    ${data.gen.Util > 80 ? '<br><small style="color:#f39c12;">⚠ Limited generation capacity</small>' : ''}
+                    <br><small>Network ID: ${data.gen.Network_ID}</small>
                 </p>
                 <p style="font-size:11px; color:#666; margin-top:10px;">
-                    Approx. ${Math.round(data.dist_ft)} ft from circuit backbone.
+                    Approximately ${Math.round(data.dist_ft)} ft from circuit backbone.
                 </p>
             `;
 
             if (addressMarker) map.removeLayer(addressMarker);
-            addressMarker = L.circleMarker([data.lat, data.lon], {color: '#7030A0', radius: 8, fillOpacity: 1}).addTo(map);
+            addressMarker = L.circleMarker([data.lat, data.lon], {
+                color: '#7030A0', 
+                radius: 8, 
+                fillOpacity: 1
+            }).addTo(map);
             map.setView([data.lat, data.lon], 15);
         }
     </script>
