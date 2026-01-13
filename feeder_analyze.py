@@ -5,9 +5,9 @@ from shapely.ops import linemerge
 import subprocess
 import os
 
-def process_feeder_geometries(gdf, id_col):
+def process_feeder_geometries(gdf, id_col, tolerance=0.00005):
     """Groups features by ID, merges line segments, and simplifies geometry."""
-    SIMPLIFICATION_TOLERANCE = 0.00001 
+    SIMPLIFICATION_TOLERANCE = tolerance 
     processed = []
     
     for name, group in gdf.groupby(id_col):
@@ -49,20 +49,21 @@ def create_load_or_gen_screen(input_path, output_path, data_type):
         return None
 
     if data_type == 'load':
-        gdf['peak_25_mva'] = pd.to_numeric(gdf['FIRST_F2025_Peak_MVA'], errors='coerce')
-        gdf['rating_mva'] = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
+        # Calculate derived values
+        peak_25 = pd.to_numeric(gdf['FIRST_F2025_Peak_MVA'], errors='coerce')
+        rating = pd.to_numeric(gdf['FIRST_Summer_Rating__MVA_'], errors='coerce')
         
-        valid_ratings = gdf['rating_mva'].fillna(0) != 0
+        valid_ratings = rating.fillna(0) != 0
         gdf['load_pct_25'] = 0.0
         gdf.loc[valid_ratings, 'load_pct_25'] = (
-            gdf.loc[valid_ratings, 'peak_25_mva'] / 
-            gdf.loc[valid_ratings, 'rating_mva'] * 100
+            peak_25.loc[valid_ratings] / 
+            rating.loc[valid_ratings] * 100
         ).round(1)
         
-        # Add constraint flag for styling
         gdf['constrained'] = (gdf['load_pct_25'] > 90).astype(int)
         
-        cols = ['Feeder', 'peak_25_mva', 'rating_mva', 'load_pct_25', 'constrained', 'geometry']
+        # Removed 'peak_25_mva' and 'rating_mva' from the final export columns
+        cols = ['Feeder', 'load_pct_25', 'constrained', 'geometry']
         id_col = 'Feeder'
         
     elif data_type == 'gen':
@@ -82,18 +83,28 @@ def create_load_or_gen_screen(input_path, output_path, data_type):
         return None
 
     print("Merging and simplifying geometries...")
-    result_gdf = process_feeder_geometries(gdf, id_col)
+    tol = 0.0001 if data_type == 'load' else 0.00005
+    result_gdf = process_feeder_geometries(gdf, id_col, tolerance=tol)
     
-    # Ensure WGS84 for web mapping
     if result_gdf.crs != "EPSG:4326":
         result_gdf = result_gdf.to_crs("EPSG:4326")
-    
-    # Save as GeoJSON (input for tippecanoe)
+
+    # Rounding function to reduce text volume in GeoJSON
+    def round_coords(geom, precision=6):
+        if geom.is_empty: return geom
+        return type(geom)([[round(x, precision) for x in pt] for pt in geom.coords])
+
+    # Apply coordinate rounding
+    result_gdf.geometry = result_gdf.geometry.map(
+        lambda g: round_coords(g, 6) if isinstance(g, LineString) else g
+    )
+
+    print(f"Saving optimized GeoJSON to {output_path}...")
     result_gdf.to_file(output_path, driver='GeoJSON')
     
     if os.path.exists(output_path):
-        size_kb = os.path.getsize(output_path) / 1024
-        print(f"Created {output_path} ({size_kb:.1f} KB, {len(result_gdf)} features)")
+        size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        print(f"Created {output_path} ({size_mb:.2f} MB, {len(result_gdf)} features)")
     
     return result_gdf
 
@@ -125,7 +136,7 @@ def create_pmtiles(geojson_path, pmtiles_path, layer_name, min_zoom=7, max_zoom=
         print(f"✗ Tippecanoe error: {e.stderr}")
         return False
     except FileNotFoundError:
-        print("✗ Tippecanoe not found. Install with: brew install tippecanoe (macOS) or see https://github.com/felt/tippecanoe")
+        print("✗ Tippecanoe not found.")
         return False
 
 # --- Execution ---
@@ -133,15 +144,12 @@ def create_pmtiles(geojson_path, pmtiles_path, layer_name, min_zoom=7, max_zoom=
 LOAD_INPUT = "ri_load_capacity_2025.geojson"
 GEN_INPUT = "ri_hosting_capacity_2025.geojson"
 
-# Intermediate GeoJSON files
 LOAD_GEOJSON = "ri_load_screen.geojson"
 GEN_GEOJSON = "ri_generation_screen.geojson"
 
-# Final PMTiles outputs
 LOAD_PMTILES = "ri_load_screen.pmtiles"
 GEN_PMTILES = "ri_generation_screen.pmtiles"
 
-# Process data
 print("=" * 60)
 print("STEP 1: Processing Load Data")
 print("=" * 60)
@@ -152,7 +160,6 @@ print("STEP 2: Processing Generation Data")
 print("=" * 60)
 gen_gdf = create_load_or_gen_screen(GEN_INPUT, GEN_GEOJSON, data_type='gen')
 
-# Create PMTiles
 if load_gdf is not None:
     print("\n" + "=" * 60)
     print("STEP 3: Creating Load PMTiles")
@@ -168,6 +175,3 @@ if gen_gdf is not None:
 print("\n" + "=" * 60)
 print("COMPLETE")
 print("=" * 60)
-print("\nUpload these files to your hosting:")
-print(f"  - {LOAD_PMTILES}")
-print(f"  - {GEN_PMTILES}")

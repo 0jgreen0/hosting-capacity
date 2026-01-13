@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14,50 +13,37 @@
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; background-color: #fcfcfc; }
         h2 { color: #015473; margin-top: 0; }
-
         .main-container { display: flex; flex-direction: column; gap: 20px; }
         .form-section { width: 100%; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
-
         #map { height: 500px; width: 100%; margin-top: 20px; border: 1px solid #B3B3B3; border-radius: 5px; position: relative; }
-
         .result { padding: 20px; margin: 15px 0; border-radius: 6px; border-width: 2px; border-style: solid; animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-        /* Styles from the implementation you liked */
         .eligible { background: #eef6fb; border-color: #005a8d; }
         .not-eligible { background: #fff5eb; border-color: #d95f02; }
-
         .input-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #015473; margin-top: 15px; }
         .input-group input, .input-group select { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #B3B3B3; border-radius: 4px; box-sizing: border-box; }
         .input-group button { width: 100%; margin-top: 20px; padding: 14px; font-size: 16px; font-weight: bold; cursor: pointer; background-color: #068DBC; color: white; border: none; border-radius: 4px; transition: background 0.2s; }
         .input-group button:hover { background-color: #005a8d; }
         .input-group button:disabled { background-color: #ccc; cursor: not-allowed; }
-
         .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .header-row h4 { margin: 0; color: #015473; font-size: 1.1em; }
-
         .status-pill { display: inline-block; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 13px; color: white; min-width: 80px; text-align: center; }
         .pill-yes { background-color: #2ecc71; }
         .pill-no { background-color: #e74c3c; }
-
         .legend { position:absolute; bottom:10px; left:10px; padding: 12px; background: white; border: 2px solid #ccc; border-radius: 5px; font-size: 12px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); z-index:2; }
         .legend i { width: 18px; height: 3px; float: left; margin-right: 8px; margin-top: 6px; }
         .legend-title { font-weight: bold; margin-bottom: 8px; }
-
         .conflict-warning { background: #fffbe6; border: 1px solid #ffe58f; padding: 12px; margin-top: 15px; border-radius: 4px; font-size: 13px; color: #856404; display: flex; align-items: flex-start; gap: 8px; }
-
         .layer-toggle { position: absolute; top: 10px; left: 10px; z-index: 3; background: white; border-radius: 4px; padding: 10px; box-shadow: 0 1px 5px rgba(0,0,0,0.2); }
         .layer-toggle label { display: block; margin: 5px 0; cursor: pointer; font-size: 13px; }
-
         #spinner-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); display: none; align-items: center; justify-content: center; z-index: 9999; }
         .spinner { width: 48px; height: 48px; border: 5px solid #ccc; border-top: 5px solid #068DBC; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
         #loading-status { font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
-
         .disclaimer-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 13px; color: #495057; line-height: 1.6; }
         .disclaimer-box a { color: #068DBC; text-decoration: none; }
         .disclaimer-box a:hover { text-decoration: underline; }
+        .map-container { width: 100%; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
@@ -73,295 +59,214 @@
             <label for="address">Property Address (or Right-Click Map)</label>
             <input id="address" type="text" placeholder="e.g., 82 Smith St, Providence, RI">
 
-            <button id="check-btn" onclick="handleFormSubmit()" disabled>Loading data...</button>
-            <div id="loading-status">Initializing vector tiles and inclusion zone...</div>
+            <button id="check-btn" onclick="handleFormSubmit()" disabled>Loading Infrastructure Data...</button>
+            <div id="loading-status">Initializing geographic calculation engine...</div>
         </div>
         <div id="result"></div>
     </div>
-</div>
 
-<div id="map">
-    <div class="layer-toggle">
-        <label><input type="radio" name="layer" value="load" checked onchange="toggleLayer(this.value)"> Load Capacity</label>
-        <label><input type="radio" name="layer" value="gen" onchange="toggleLayer(this.value)"> Hosting Capacity</label>
+    <div class="map-container">
+        <div id="map">
+            <div class="layer-toggle">
+                <label><input type="radio" name="layer" value="load" checked onchange="toggleLayer(this.value)"> Load Capacity</label>
+                <label><input type="radio" name="layer" value="gen" onchange="toggleLayer(this.value)"> Hosting Capacity</label>
+            </div>
+        </div>
     </div>
 </div>
 
 <div id="spinner-overlay"><div class="spinner"></div></div>
 
 <script>
-const LOAD_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen_1.pmtiles';
+const LOAD_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.pmtiles';
 const GEN_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.pmtiles';
+const LOAD_GEOJSON_URL = 'https://cdn.jsdelivr.net/gh/0jgreen0/hosting-capacity@main/ri_load_screen.geojson'; 
+const GEN_GEOJSON_URL = 'https://cdn.jsdelivr.net/gh/0jgreen0/hosting-capacity@main/ri_generation_screen.geojson';
 const INCLUSION_GEOJSON_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/inclusion_map/inclusion_map.geojson';
+
+
+https://user/repo@version/file
 
 const COLORS = { READY: '#0072B2', CONSTRAINED: '#D55E00' };
 
 let map, activeLayer = 'load', addressMarker, inclusionZoneData, legendDiv;
+let loadGeoJSON, genGeoJSON;
 const geocodeCache = new Map();
 
 function showSpinner(show){ document.getElementById('spinner-overlay').style.display = show ? 'flex' : 'none'; }
 
-async function loadInclusionZone(){ 
+async function initData() {
     try {
-        const r = await fetch(INCLUSION_GEOJSON_URL); 
-        inclusionZoneData = await r.json(); 
-    } catch(e) { console.error("Inclusion map load error", e); }
+        const [inc, load, gen] = await Promise.all([
+            fetch(INCLUSION_GEOJSON_URL).then(r => r.json()),
+            fetch(LOAD_GEOJSON_URL).then(r => r.json()),
+            fetch(GEN_GEOJSON_URL).then(r => r.json())
+        ]);
+        inclusionZoneData = inc;
+        loadGeoJSON = load;
+        genGeoJSON = gen;
+
+        document.getElementById('loading-status').style.display = 'none';
+        const b = document.getElementById('check-btn');
+        b.disabled = false;
+        b.textContent = 'Check Eligibility';
+    } catch(e) { 
+        console.error("Data load error", e); 
+        document.getElementById('loading-status').textContent = "Error loading calculation data.";
+    }
 }
-loadInclusionZone();
+initData();
 
-function pointInPolygon(point, polygon){ let [x,y]=point, inside=false; for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){ const xi=polygon[i][0], yi=polygon[i][1]; const xj=polygon[j][0], yj=polygon[j][1]; const intersect=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi); if(intersect) inside=!inside;} return inside; }
-
-function isPointInInclusionZone(lon,lat){ 
-    if(!inclusionZoneData) return true; // Fail safe
-    for(const f of inclusionZoneData.features){ 
-        if(f.geometry.type==='Polygon'){ if(pointInPolygon([lon,lat],f.geometry.coordinates[0])) return true; } 
-        if(f.geometry.type==='MultiPolygon'){ for(const p of f.geometry.coordinates){ if(pointInPolygon([lon,lat],p[0])) return true; } } 
-    } 
-    return false; 
+function isPointInInclusionZone(lon, lat) {
+    if (!inclusionZoneData) return true;
+    const pt = turf.point([lon, lat]);
+    return inclusionZoneData.features.some(f => turf.booleanPointInPolygon(pt, f));
 }
 
-let protocol=new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles",protocol.tile);
+let protocol = new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles", protocol.tile);
 
-map=new maplibregl.Map({
-    container:'map',
-    center:[-71.45,41.65],
-    zoom:10,
-    style:{
-        version:8,
-        sources:{
-            carto:{type:'raster',tiles:['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],tileSize:256},
-            load:{type:'vector',url:`pmtiles://${LOAD_PMTILES_URL}`},
-            gen:{type:'vector',url:`pmtiles://${GEN_PMTILES_URL}`}
+map = new maplibregl.Map({
+    container: 'map',
+    center: [-71.45, 41.65],
+    zoom: 10,
+    style: {
+        version: 8,
+        sources: {
+            carto: { type: 'raster', tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'], tileSize: 256 },
+            load: { type: 'vector', url: `pmtiles://${LOAD_PMTILES_URL}` },
+            gen: { type: 'vector', url: `pmtiles://${GEN_PMTILES_URL}` }
         },
-        layers:[
-            {id:'background',type:'raster',source:'carto'},
-            {id:'load-lines',type:'line',source:'load','source-layer':'load_capacity',paint:{'line-color':['case',['==',['get','constrained'],1],COLORS.CONSTRAINED,COLORS.READY],'line-width':['interpolate',['linear'],['zoom'],10,1.5,13,2.5,16,4],'line-opacity':0.8},layout:{visibility:'visible'}},
-            {id:'gen-lines',type:'line',source:'gen','source-layer':'hosting_capacity',paint:{'line-color':['case',['==',['get','constrained'],1],COLORS.CONSTRAINED,COLORS.READY],'line-width':['interpolate',['linear'],['zoom'],10,1.5,13,2.5,16,4],'line-opacity':0.8},layout:{visibility:'none'}},
-            // logic layers are always visible but nearly invisible, ensuring queryability
-            {id:'load-logic',type:'line',source:'load','source-layer':'load_capacity',paint:{'line-opacity':0.01},layout:{visibility:'visible'}},
-            {id:'gen-logic',type:'line',source:'gen','source-layer':'hosting_capacity',paint:{'line-opacity':0.01},layout:{visibility:'visible'}}
+        layers: [
+            { id: 'background', type: 'raster', source: 'carto' },
+            { id: 'load-lines', type: 'line', source: 'load', 'source-layer': 'load_capacity', paint: { 'line-color': ['case', ['==', ['get', 'constrained'], 1], COLORS.CONSTRAINED, COLORS.READY], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 2.5, 16, 4], 'line-opacity': 0.8 }, layout: { visibility: 'visible' } },
+            { id: 'gen-lines', type: 'line', source: 'gen', 'source-layer': 'hosting_capacity', paint: { 'line-color': ['case', ['==', ['get', 'constrained'], 1], COLORS.CONSTRAINED, COLORS.READY], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 2.5, 16, 4], 'line-opacity': 0.8 }, layout: { visibility: 'none' } }
         ]
     }
 });
 
-map.addControl(new maplibregl.NavigationControl(),'bottom-right');
-
-map.on('load',()=>{
-    legendDiv=document.createElement('div'); legendDiv.className='legend'; map.getContainer().appendChild(legendDiv); updateLegend();
-    const t=setInterval(()=>{ if(inclusionZoneData){ clearInterval(t); document.getElementById('loading-status').style.display='none'; const b=document.getElementById('check-btn'); b.disabled=false; b.textContent='Check Eligibility';}},100);
+map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+map.on('load', () => {
+    legendDiv = document.createElement('div'); legendDiv.className = 'legend'; map.getContainer().appendChild(legendDiv); updateLegend();
 });
 
-// Add Enter key listener
-document.getElementById('address').addEventListener('keypress', function(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        handleFormSubmit();
-    }
+document.getElementById('address').addEventListener('keypress', (e) => { if (e.key === 'Enter') handleFormSubmit(); });
+
+function updateLegend() {
+    if (!legendDiv) return;
+    legendDiv.innerHTML = activeLayer === 'load' 
+        ? `<div class='legend-title'>2025 Load Utilization</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (>90%)</div><div><i style='background:${COLORS.READY}'></i> Capacity Ready (≤90%)</div>`
+        : `<div class='legend-title'>Hosting Capacity</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (<0.5 MW)</div><div><i style='background:${COLORS.READY}'></i> Generation Ready (≥0.5 MW)</div>`;
+}
+
+function toggleLayer(layer) {
+    activeLayer = layer;
+    map.setLayoutProperty('load-lines', 'visibility', layer === 'load' ? 'visible' : 'none');
+    map.setLayoutProperty('gen-lines', 'visibility', layer === 'gen' ? 'visible' : 'none');
+    updateLegend();
+}
+
+async function handleFormSubmit() {
+    const addr = document.getElementById('address').value.trim();
+    if (!addr) return;
+    showSpinner(true);
+    try {
+        if (geocodeCache.has(addr)) { const c = geocodeCache.get(addr); performCheck(c.lat, c.lon, c.label); return; }
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
+        const d = await r.json(); if (!d.length) throw new Error('Address not found');
+        const lat = parseFloat(d[0].lat), lon = parseFloat(d[0].lon), label = d[0].display_name;
+        geocodeCache.set(addr, { lat, lon, label }); performCheck(lat, lon, label);
+    } catch (e) { alert(e.message); showSpinner(false); }
+}
+
+map.on('contextmenu', e => { 
+    const { lng, lat } = e.lngLat; 
+    document.getElementById('address').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; 
+    performCheck(lat, lng, 'Coordinate Selected on Map'); 
 });
-
-function updateLegend(){ 
-    if(!legendDiv) return; 
-    if(activeLayer==='load'){ legendDiv.innerHTML=`<div class='legend-title'>2025 Load Utilization</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (>90%)</div><div><i style='background:${COLORS.READY}'></i> Capacity Ready (≤90%)</div>`;} 
-    else { legendDiv.innerHTML=`<div class='legend-title'>Hosting Capacity</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (<0.5 MW)</div><div><i style='background:${COLORS.READY}'></i> Generation Ready (≥0.5 MW)</div>`;} 
-}
-
-function toggleLayer(layer){ 
-    activeLayer=layer; 
-    map.setLayoutProperty('load-lines','visibility',layer==='load'?'visible':'none'); 
-    map.setLayoutProperty('gen-lines','visibility',layer==='gen'?'visible':'none'); 
-    updateLegend(); 
-}
-
-async function handleFormSubmit(){ 
-    const addr=address.value.trim(); 
-    if(!addr) return; 
-    showSpinner(true); 
-    try{
-        if(geocodeCache.has(addr)){ const c=geocodeCache.get(addr); performCheck(c.lat,c.lon,c.label); return; }
-        const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
-        const d=await r.json(); if(!d.length) throw new Error('Address not found');
-        const lat=parseFloat(d[0].lat), lon=parseFloat(d[0].lon), label=d[0].display_name;
-        geocodeCache.set(addr,{lat,lon,label}); performCheck(lat,lon,label);
-    }catch(e){ alert(e.message); showSpinner(false);} 
-}
-
-map.on('contextmenu',e=>{ const {lng,lat}=e.lngLat; address.value=`${lat.toFixed(5)}, ${lng.toFixed(5)}`; performCheck(lat,lng,'Coordinate Selected on Map'); });
-
-function calculateDistance(lon1, lat1, lon2, lat2) {
-    const R = 6371000; // Earth radius in meters
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in meters
-}
-
-function distanceToLineString(lon, lat, lineCoords) {
-    let minDist = Infinity;
-    for (const coord of lineCoords) {
-        const dist = calculateDistance(lon, lat, coord[0], coord[1]);
-        if (dist < minDist) minDist = dist;
-    }
-    return minDist;
-}
-
-function findClosestFeature(features, targetLon, targetLat) {
-    if (!features.length) return null;
-    
-    let closest = features[0];
-    let minDist = Infinity;
-    
-    for (const f of features) {
-        let dist;
-        if (f.geometry.type === 'LineString') {
-            dist = distanceToLineString(targetLon, targetLat, f.geometry.coordinates);
-        } else if (f.geometry.type === 'MultiLineString') {
-            dist = Math.min(...f.geometry.coordinates.map(line => distanceToLineString(targetLon, targetLat, line)));
-        } else {
-            continue;
-        }
-        
-        if (dist < minDist) {
-            minDist = dist;
-            closest = f;
-        }
-    }
-    
-    return { feature: closest, distance: minDist };
-}
-
-function findBestCaseScenario(features, targetLon, targetLat) {
-    if (!features.length) return null;
-    
-    // Calculate distances for all features
-    const featuresWithDist = features.map(f => {
-        let dist;
-        if (f.geometry.type === 'LineString') {
-            dist = distanceToLineString(targetLon, targetLat, f.geometry.coordinates);
-        } else if (f.geometry.type === 'MultiLineString') {
-            dist = Math.min(...f.geometry.coordinates.map(line => distanceToLineString(targetLon, targetLat, line)));
-        } else {
-            dist = Infinity;
-        }
-        return { feature: f, distance: dist };
-    });
-    
-    // Sort by distance
-    featuresWithDist.sort((a, b) => a.distance - b.distance);
-    
-    const closest = featuresWithDist[0];
-    
-    // Find all features within 100ft of the closest distance
-    const within100ft = featuresWithDist.filter(f => 
-        Math.abs(f.distance - closest.distance) <= 30.48 // 100 feet in meters
-    );
-    
-    // If multiple features within tolerance, pick the least constrained
-    if (within100ft.length > 1) {
-        const unconstrained = within100ft.filter(f => f.feature.properties.constrained === 0);
-        if (unconstrained.length > 0) {
-            return { ...unconstrained[0], multipleWithinRange: true };
-        }
-    }
-    
-    return { ...closest, multipleWithinRange: within100ft.length > 1 };
-}
 
 /**
- * performCheck triggers flyTo and waits for the map to become 'idle'.
- * This ensures the query engine has a populated buffer for the target zoom level.
+ * Global spatial lookup using Turf.js
+ * Handles MultiLineStrings by finding absolute nearest point on any segment
  */
+function findGlobalNearest(pt, collection) {
+    if (!collection || !collection.features.length) return null;
+    let closest = null;
+    let minDistance = Infinity;
+
+    collection.features.forEach(feature => {
+        // Turf.pointToLineDistance handles MultiLineString automatically
+        const dist = turf.pointToLineDistance(pt, feature, { units: 'meters' });
+        if (dist < minDistance) {
+            minDistance = dist;
+            closest = feature;
+        }
+    });
+
+    // Best Case Scenario: Prefer unconstrained if within 100ft (30.48m) of closest
+    const candidates = collection.features.filter(f => {
+        const d = turf.pointToLineDistance(pt, f, { units: 'meters' });
+        return Math.abs(d - minDistance) <= 30.48;
+    });
+
+    if (candidates.length > 1) {
+        const unconstrained = candidates.find(f => f.properties.constrained === 0);
+        if (unconstrained) return { feature: unconstrained, distance: minDistance, multiple: true };
+    }
+
+    return { feature: closest, distance: minDistance, multiple: candidates.length > 1 };
+}
+
 async function performCheck(lat, lon, label) {
     showSpinner(true);
     if (addressMarker) addressMarker.remove();
     
-    // Purple marker style from liked version
     const el = document.createElement('div');
-    el.style.width = '20px'; el.style.height = '20px';
-    el.style.borderRadius = '50%'; el.style.backgroundColor = '#7030A0';
-    el.style.border = '2px solid white';
+    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#7030A0;border:2px solid white;';
     addressMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+    map.flyTo({ center: [lon, lat], zoom: 16 });
 
-    // Check for inclusion zone
     if (!isPointInInclusionZone(lon, lat)) {
         document.getElementById('result').innerHTML = `<div class='result not-eligible'><h3>Outside Service Territory</h3><p>This location is outside the Rhode Island Energy service territory.</p></div>`;
-        map.flyTo({ center: [lon, lat], zoom: 16 });
         showSpinner(false);
         return;
     }
 
-    map.flyTo({ center: [lon, lat], zoom: 16 });
+    const pt = turf.point([lon, lat]);
+    const loadRes = findGlobalNearest(pt, loadGeoJSON);
+    const genRes = findGlobalNearest(pt, genGeoJSON);
 
-    const onIdle = () => {
-        map.off('idle', onIdle);
-        
-        // Larger search radius to ensure we find features
-        const point = map.project([lon, lat]);
-        const size = 50; // Increased from 20
-        const bbox = [[point.x - size, point.y - size], [point.x + size, point.y + size]];
-
-        const loadFeatures = map.queryRenderedFeatures(bbox, { layers: ['load-logic'] });
-        const genFeatures = map.queryRenderedFeatures(bbox, { layers: ['gen-logic'] });
-
-        // Find best case scenario (closest, or least constrained if multiple within 100ft)
-        const loadResult = findBestCaseScenario(loadFeatures, lon, lat);
-        const genResult = findBestCaseScenario(genFeatures, lon, lat);
-
-        if (!loadResult) {
-            document.getElementById('result').innerHTML = `<div class='result not-eligible'><h3>No Grid Data</h3><p>Infrastructure data not found. The location may be too far from mapped utility infrastructure.</p></div>`;
-            showSpinner(false);
-            return;
-        }
-
-        const primaryLoad = loadResult.feature.properties;
-        const primaryGen = genResult ? genResult.feature.properties : { hosting_capacity_mw: 0, constrained: 1, Section_ID: 'N/A' };
-        
-        const loadDistFt = (loadResult.distance * 3.28084).toFixed(0);
-        const genDistFt = genResult ? (genResult.distance * 3.28084).toFixed(0) : 'N/A';
-
-        displayResults({ 
-            label, 
-            lat, 
-            lon, 
-            load: primaryLoad, 
-            gen: primaryGen, 
-            loadDistance: loadDistFt,
-            genDistance: genDistFt,
-            multipleLoadFeeders: loadResult.multipleWithinRange,
-            multipleGenFeeders: genResult ? genResult.multipleWithinRange : false
-        });
-        
+    if (!loadRes) {
+        document.getElementById('result').innerHTML = `<div class='result not-eligible'><h3>Infrastructure Missing</h3><p>Could not locate nearby utility infrastructure.</p></div>`;
         showSpinner(false);
-    };
+        return;
+    }
 
-    map.on('idle', onIdle);
+    displayResults({
+        label, lat, lon,
+        load: loadRes.feature.properties,
+        gen: genRes ? genRes.feature.properties : { hosting_capacity_mw: 0, constrained: 1, Section_ID: 'N/A' },
+        loadDistance: (loadRes.distance * 3.28084).toFixed(0),
+        genDistance: genRes ? (genRes.distance * 3.28084).toFixed(0) : 'N/A',
+        multipleLoadFeeders: loadRes.multiple,
+        multipleGenFeeders: genRes ? genRes.multiple : false
+    });
+    
+    showSpinner(false);
 }
 
-function displayResults(data){
-    const isHPEligible=data.load.constrained===0;
-    const isSolarEligible=data.gen.constrained===0;
-    const isStorageEligible=data.load.constrained===1 && data.gen.constrained===1;
+function displayResults(data) {
+    const isHPEligible = data.load.constrained === 0;
+    const isSolarEligible = data.gen.constrained === 0;
+    const isStorageEligible = data.load.constrained === 1 && data.gen.constrained === 1;
 
-    const hpText = isHPEligible 
-        ? 'Great news! You are eligible for an enhanced incentive for heat pumps! Your local electric grid has ample capacity for additional heat pumps.' 
-        : "Unfortunately, your local grid is near its rated capacity and cannot handle many more heat pumps without requiring costly upgrades. You are eligible for standard incentives.";
-    
-    const storageText = isStorageEligible 
-        ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days when demand from A/C is high, while taking power from solar panels on sunny, mild days. Building storage at this location can allow more customers to install heat pumps, electric appliances, EV chargers, and solar photovoltaic generation.' 
-        : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive. Your feeder is not currently highly loaded (2025 peak load > 90%) or does not have high generation utilization (<0.5 MW remaining), meaning storage is not critical for immediate capacity relief. You are eligible for standard incentives.";
-    
-    const solarText = isSolarEligible 
-        ? 'Great news! You are eligible for an enhanced incentive for distributed solar photovoltaics! Your local grid has sufficient hosting capacity (0.5 MW or more) for new solar photovoltaic generation.' 
-        : "Unfortunately, your local grid has high utilization (less than 0.5 MW available) from existing generation. New solar installations in this area may require costly upgrades or detailed study before connection. You are eligible for standard incentives.";
+    const hpText = isHPEligible ? 'Great news! You are eligible for an enhanced incentive for heat pumps! Your local electric grid has ample capacity for additional heat pumps.' : "Unfortunately, your local grid is near its rated capacity and cannot handle many more heat pumps without requiring costly upgrades. You are eligible for standard incentives.";
+    const storageText = isStorageEligible ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days.' : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive.";
+    const solarText = isSolarEligible ? 'Great news! You are eligible for an enhanced incentive for distributed solar photovoltaics! Your local grid has sufficient hosting capacity (0.5 MW or more).' : "Unfortunately, your local grid has high utilization from existing generation.";
 
     const multipleFeederWarning = (data.multipleLoadFeeders || data.multipleGenFeeders) ? 
-        `<div class='conflict-warning'><span>⚠️</span><div><strong>Multi-Feeder Area:</strong> Multiple ${data.multipleLoadFeeders && data.multipleGenFeeders ? 'load and generation' : data.multipleLoadFeeders ? 'load' : 'generation'} circuits detected within similar distance. Showing best-case scenario results.</div></div>` : '';
+        `<div class='conflict-warning'><span>⚠️</span><div><strong>Multi-Feeder Area:</strong> Multiple circuits detected nearby. Showing best-case scenario results.</div></div>` : '';
 
-    document.getElementById('result').innerHTML=`
+    document.getElementById('result').innerHTML = `
     <div class='result ${isHPEligible?'eligible':'not-eligible'}'>
         <h3>Screening Results</h3>
         <p style='font-size:0.9em;color:#666'><strong>Location:</strong> ${data.label}</p>
@@ -379,11 +284,10 @@ function displayResults(data){
 
         <div style='font-size:11px;margin-top:20px;border-top:1px solid #ddd;padding-top:10px;color:#888'>
             Primary Feeder: ${data.load.Feeder || data.load.feeder || 'N/A'} | 2025 Load: ${data.load.load_pct_25}% | Distance: ${data.loadDistance} ft<br>
-            Generation Section ID: ${data.gen.Section_ID || 'N/A'} | Hosting: ${data.gen.hosting_capacity_mw} MW | Distance: ${data.genDistFt} ft
+            Generation Section ID: ${data.gen.Section_ID || 'N/A'} | Hosting: ${data.gen.hosting_capacity_mw} MW | Distance: ${data.genDistance} ft
         </div>
     </div>`;
 }
 </script>
 </body>
 </html>
-```
