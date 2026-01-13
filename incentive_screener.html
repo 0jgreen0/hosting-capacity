@@ -1,15 +1,14 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Utility Incentive Eligibility Checker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     <script src="https://unpkg.com/pmtiles@3.0.3/dist/pmtiles.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; background-color: #fcfcfc; }
         h2 { color: #015473; margin-top: 0; }
@@ -40,7 +39,7 @@
         .spinner { width: 48px; height: 48px; border: 5px solid #ccc; border-top: 5px solid #068DBC; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         #loading-status { font-style: italic; color: #068DBC; margin-top: 10px; font-size: 14px; }
-        .disclaimer-box { background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 13px; color: #495057; line-height: 1.6; }
+        .disclaimer-box { width: 100%; background: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 20px; border-radius: 4px; font-size: 13px; color: #495057; line-height: 1.6; }
         .disclaimer-box a { color: #068DBC; text-decoration: none; }
         .disclaimer-box a:hover { text-decoration: underline; }
         .map-container { width: 100%; background: white; padding: 20px; border-radius: 8px; border: 1px solid #ddd; }
@@ -48,23 +47,19 @@
 </head>
 <body>
 <h2>Enhanced Incentive Eligibility Lookup</h2>
-
 <div class="disclaimer-box">
     This tool reflects data from the <a href="https://www.rienergy.com/safety-community/system-data-portal" target="_blank">Rhode Island Energy System Data Portal</a>. Results are for screening purposes only and do not guarantee incentive approval or interconnection capability.
 </div>
-
 <div class="main-container">
     <div class="form-section">
         <div class="input-group">
             <label for="address">Property Address (or Right-Click Map)</label>
             <input id="address" type="text" placeholder="e.g., 82 Smith St, Providence, RI">
-
             <button id="check-btn" onclick="handleFormSubmit()" disabled>Loading Infrastructure Data...</button>
             <div id="loading-status">Initializing geographic calculation engine...</div>
         </div>
         <div id="result"></div>
     </div>
-
     <div class="map-container">
         <div id="map">
             <div class="layer-toggle">
@@ -74,38 +69,43 @@
         </div>
     </div>
 </div>
-
 <div id="spinner-overlay"><div class="spinner"></div></div>
-
 <script>
 const LOAD_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.pmtiles';
 const GEN_PMTILES_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.pmtiles';
-const LOAD_GEOJSON_URL = 'https://cdn.jsdelivr.net/gh/0jgreen0/hosting-capacity@main/ri_load_screen.geojson'; 
-const GEN_GEOJSON_URL = 'https://cdn.jsdelivr.net/gh/0jgreen0/hosting-capacity@main/ri_generation_screen.geojson';
+const LOAD_GEOJSON_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_load_screen.geojson.gz'; 
+const GEN_GEOJSON_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/ri_generation_screen.geojson.gz';
 const INCLUSION_GEOJSON_URL = 'https://raw.githubusercontent.com/0jgreen0/hosting-capacity/main/inclusion_map/inclusion_map.geojson';
-
-
-https://user/repo@version/file
-
 const COLORS = { READY: '#0072B2', CONSTRAINED: '#D55E00' };
-
 let map, activeLayer = 'load', addressMarker, inclusionZoneData, legendDiv;
 let loadGeoJSON, genGeoJSON;
 const geocodeCache = new Map();
-
 function showSpinner(show){ document.getElementById('spinner-overlay').style.display = show ? 'flex' : 'none'; }
-
+async function fetchGzipJSON(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const encoding = response.headers.get('Content-Encoding');
+    if (encoding === 'gzip') return await response.json();
+    try {
+        const ds = new DecompressionStream("gzip");
+        const decompressedStream = response.body.pipeThrough(ds);
+        const text = await new Response(decompressedStream).text();
+        return JSON.parse(text);
+    } catch (e) {
+        return await response.json();
+    }
+}
 async function initData() {
     try {
         const [inc, load, gen] = await Promise.all([
             fetch(INCLUSION_GEOJSON_URL).then(r => r.json()),
-            fetch(LOAD_GEOJSON_URL).then(r => r.json()),
-            fetch(GEN_GEOJSON_URL).then(r => r.json())
+            fetchGzipJSON(LOAD_GEOJSON_URL),
+            fetchGzipJSON(GEN_GEOJSON_URL)
         ]);
+        
         inclusionZoneData = inc;
         loadGeoJSON = load;
         genGeoJSON = gen;
-
         document.getElementById('loading-status').style.display = 'none';
         const b = document.getElementById('check-btn');
         b.disabled = false;
@@ -116,15 +116,12 @@ async function initData() {
     }
 }
 initData();
-
 function isPointInInclusionZone(lon, lat) {
-    if (!inclusionZoneData) return true;
+    if (!inclusionZoneData || !inclusionZoneData.features) return true;
     const pt = turf.point([lon, lat]);
     return inclusionZoneData.features.some(f => turf.booleanPointInPolygon(pt, f));
 }
-
 let protocol = new pmtiles.Protocol(); maplibregl.addProtocol("pmtiles", protocol.tile);
-
 map = new maplibregl.Map({
     container: 'map',
     center: [-71.45, 41.65],
@@ -143,28 +140,23 @@ map = new maplibregl.Map({
         ]
     }
 });
-
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 map.on('load', () => {
     legendDiv = document.createElement('div'); legendDiv.className = 'legend'; map.getContainer().appendChild(legendDiv); updateLegend();
 });
-
 document.getElementById('address').addEventListener('keypress', (e) => { if (e.key === 'Enter') handleFormSubmit(); });
-
 function updateLegend() {
     if (!legendDiv) return;
     legendDiv.innerHTML = activeLayer === 'load' 
         ? `<div class='legend-title'>2025 Load Utilization</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (>90%)</div><div><i style='background:${COLORS.READY}'></i> Capacity Ready (≤90%)</div>`
         : `<div class='legend-title'>Hosting Capacity</div><div><i style='background:${COLORS.CONSTRAINED}'></i> Constrained (<0.5 MW)</div><div><i style='background:${COLORS.READY}'></i> Generation Ready (≥0.5 MW)</div>`;
 }
-
 function toggleLayer(layer) {
     activeLayer = layer;
     map.setLayoutProperty('load-lines', 'visibility', layer === 'load' ? 'visible' : 'none');
     map.setLayoutProperty('gen-lines', 'visibility', layer === 'gen' ? 'visible' : 'none');
     updateLegend();
 }
-
 async function handleFormSubmit() {
     const addr = document.getElementById('address').value.trim();
     if (!addr) return;
@@ -177,45 +169,49 @@ async function handleFormSubmit() {
         geocodeCache.set(addr, { lat, lon, label }); performCheck(lat, lon, label);
     } catch (e) { alert(e.message); showSpinner(false); }
 }
-
 map.on('contextmenu', e => { 
     const { lng, lat } = e.lngLat; 
     document.getElementById('address').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; 
     performCheck(lat, lng, 'Coordinate Selected on Map'); 
 });
-
-/**
- * Global spatial lookup using Turf.js
- * Handles MultiLineStrings by finding absolute nearest point on any segment
- */
+function getDistToFeature(pt, feature) {
+    try {
+        if (feature.geometry.type === 'MultiLineString') {
+            const flattened = turf.flatten(feature);
+            let min = Infinity;
+            flattened.features.forEach(f => {
+                const d = turf.pointToLineDistance(pt, f, { units: 'meters' });
+                if (d < min) min = d;
+            });
+            return min;
+        }
+        return turf.pointToLineDistance(pt, feature, { units: 'meters' });
+    } catch (e) {
+        return Infinity;
+    }
+}
 function findGlobalNearest(pt, collection) {
-    if (!collection || !collection.features.length) return null;
+    if (!collection || !collection.features || !collection.features.length) return null;
     let closest = null;
     let minDistance = Infinity;
-
-    collection.features.forEach(feature => {
-        // Turf.pointToLineDistance handles MultiLineString automatically
-        const dist = turf.pointToLineDistance(pt, feature, { units: 'meters' });
+    for (const feature of collection.features) {
+        const dist = getDistToFeature(pt, feature);
         if (dist < minDistance) {
             minDistance = dist;
             closest = feature;
         }
-    });
-
-    // Best Case Scenario: Prefer unconstrained if within 100ft (30.48m) of closest
+    }
+    if (!closest) return null;
     const candidates = collection.features.filter(f => {
-        const d = turf.pointToLineDistance(pt, f, { units: 'meters' });
-        return Math.abs(d - minDistance) <= 30.48;
+        const d = getDistToFeature(pt, f);
+        return Math.abs(d - minDistance) <= 30.48; // 100ft
     });
-
     if (candidates.length > 1) {
         const unconstrained = candidates.find(f => f.properties.constrained === 0);
         if (unconstrained) return { feature: unconstrained, distance: minDistance, multiple: true };
     }
-
     return { feature: closest, distance: minDistance, multiple: candidates.length > 1 };
 }
-
 async function performCheck(lat, lon, label) {
     showSpinner(true);
     if (addressMarker) addressMarker.remove();
@@ -224,23 +220,19 @@ async function performCheck(lat, lon, label) {
     el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#7030A0;border:2px solid white;';
     addressMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
     map.flyTo({ center: [lon, lat], zoom: 16 });
-
     if (!isPointInInclusionZone(lon, lat)) {
         document.getElementById('result').innerHTML = `<div class='result not-eligible'><h3>Outside Service Territory</h3><p>This location is outside the Rhode Island Energy service territory.</p></div>`;
         showSpinner(false);
         return;
     }
-
     const pt = turf.point([lon, lat]);
     const loadRes = findGlobalNearest(pt, loadGeoJSON);
     const genRes = findGlobalNearest(pt, genGeoJSON);
-
     if (!loadRes) {
         document.getElementById('result').innerHTML = `<div class='result not-eligible'><h3>Infrastructure Missing</h3><p>Could not locate nearby utility infrastructure.</p></div>`;
         showSpinner(false);
         return;
     }
-
     displayResults({
         label, lat, lon,
         load: loadRes.feature.properties,
@@ -253,19 +245,15 @@ async function performCheck(lat, lon, label) {
     
     showSpinner(false);
 }
-
 function displayResults(data) {
     const isHPEligible = data.load.constrained === 0;
     const isSolarEligible = data.gen.constrained === 0;
     const isStorageEligible = data.load.constrained === 1 && data.gen.constrained === 1;
-
     const hpText = isHPEligible ? 'Great news! You are eligible for an enhanced incentive for heat pumps! Your local electric grid has ample capacity for additional heat pumps.' : "Unfortunately, your local grid is near its rated capacity and cannot handle many more heat pumps without requiring costly upgrades. You are eligible for standard incentives.";
     const storageText = isStorageEligible ? 'Great news! You are eligible for an enhanced incentive for battery energy storage. This technology can help peak conditions on your local grid by providing power on hot days.' : "Your current local grid conditions do not meet the criteria for an enhanced storage incentive.";
     const solarText = isSolarEligible ? 'Great news! You are eligible for an enhanced incentive for distributed solar photovoltaics! Your local grid has sufficient hosting capacity (0.5 MW or more).' : "Unfortunately, your local grid has high utilization from existing generation.";
-
     const multipleFeederWarning = (data.multipleLoadFeeders || data.multipleGenFeeders) ? 
         `<div class='conflict-warning'><span>⚠️</span><div><strong>Multi-Feeder Area:</strong> Multiple circuits detected nearby. Showing best-case scenario results.</div></div>` : '';
-
     document.getElementById('result').innerHTML = `
     <div class='result ${isHPEligible?'eligible':'not-eligible'}'>
         <h3>Screening Results</h3>
@@ -279,9 +267,7 @@ function displayResults(data) {
         
         <div class='header-row'><h4>Battery Storage Bonus</h4><span class='status-pill ${isStorageEligible?'pill-yes':'pill-no'}'>${isStorageEligible?'ELIGIBLE':'NOT ELIGIBLE'}</span></div>
         <div class='explanation-text'>${storageText}</div>
-
         ${multipleFeederWarning}
-
         <div style='font-size:11px;margin-top:20px;border-top:1px solid #ddd;padding-top:10px;color:#888'>
             Primary Feeder: ${data.load.Feeder || data.load.feeder || 'N/A'} | 2025 Load: ${data.load.load_pct_25}% | Distance: ${data.loadDistance} ft<br>
             Generation Section ID: ${data.gen.Section_ID || 'N/A'} | Hosting: ${data.gen.hosting_capacity_mw} MW | Distance: ${data.genDistance} ft
