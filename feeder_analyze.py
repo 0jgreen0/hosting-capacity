@@ -4,10 +4,52 @@ from shapely.geometry import LineString, MultiLineString
 from shapely.ops import linemerge
 import subprocess
 import os
+import gzip
+import shutil
 
-def process_feeder_geometries(gdf, id_col, tolerance=0.00005):
+def save_compressed_geojson(result_gdf, output_path):
+    """Save GeoJSON and create compressed version"""
+    # Save normal GeoJSON
+    result_gdf.to_file(output_path, driver='GeoJSON')
+    
+    # Create gzipped version
+    gz_path = output_path + '.gz'
+    with open(output_path, 'rb') as f_in:
+        with gzip.open(gz_path, 'wb', compresslevel=9) as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    
+    original_size = os.path.getsize(output_path) / (1024 * 1024)
+    compressed_size = os.path.getsize(gz_path) / (1024 * 1024)
+    compression_ratio = (1 - compressed_size/original_size) * 100
+    
+    print(f"Original: {original_size:.2f} MB")
+    print(f"Compressed: {compressed_size:.2f} MB ({compression_ratio:.1f}% reduction)")
+    
+    return gz_path
+
+def simplify_preserve_branches(geom, tolerance=0.001):
+    """Simplify while preserving branch points and topology"""
+    if isinstance(geom, MultiLineString):
+        simplified_lines = []
+        for line in geom.geoms:
+            # Only simplify lines that are long enough to benefit
+            if line.length > tolerance * 10:
+                simplified = line.simplify(tolerance, preserve_topology=True)
+                if not simplified.is_empty:
+                    simplified_lines.append(simplified)
+            else:
+                # Keep short segments as-is to preserve branches
+                simplified_lines.append(line)
+        
+        if simplified_lines:
+            return MultiLineString(simplified_lines)
+        return geom
+    elif isinstance(geom, LineString):
+        return geom.simplify(tolerance, preserve_topology=True)
+    return geom
+
+def process_feeder_geometries(gdf, id_col, tolerance):
     """Groups features by ID, merges line segments, and simplifies geometry."""
-    SIMPLIFICATION_TOLERANCE = tolerance 
     processed = []
     
     for name, group in gdf.groupby(id_col):
@@ -29,7 +71,8 @@ def process_feeder_geometries(gdf, id_col, tolerance=0.00005):
         if merged is None or merged.is_empty:
             continue
             
-        simplified = merged.simplify(SIMPLIFICATION_TOLERANCE, preserve_topology=True) 
+        # Use branch-preserving simplification
+        simplified = simplify_preserve_branches(merged, tolerance=tolerance)
         if simplified.is_empty:
             continue
 
@@ -62,7 +105,6 @@ def create_load_or_gen_screen(input_path, output_path, data_type):
         
         gdf['constrained'] = (gdf['load_pct_25'] > 90).astype(int)
         
-        # Removed 'peak_25_mva' and 'rating_mva' from the final export columns
         cols = ['Feeder', 'load_pct_25', 'constrained', 'geometry']
         id_col = 'Feeder'
         
@@ -82,25 +124,41 @@ def create_load_or_gen_screen(input_path, output_path, data_type):
         print(f"Error: Missing required column {e} in input file.")
         return None
 
-    print("Merging and simplifying geometries...")
-    tol = 0.0001 if data_type == 'load' else 0.00005
+    print("Merging and simplifying geometries (preserving branches)...")
+    tol = 0.001  # Adjusted tolerance for branch-preserving simplification
     result_gdf = process_feeder_geometries(gdf, id_col, tolerance=tol)
     
     if result_gdf.crs != "EPSG:4326":
         result_gdf = result_gdf.to_crs("EPSG:4326")
 
     # Rounding function to reduce text volume in GeoJSON
-    def round_coords(geom, precision=6):
-        if geom.is_empty: return geom
-        return type(geom)([[round(x, precision) for x in pt] for pt in geom.coords])
+    def round_coords(geom, precision=5):
+        if geom.is_empty:
+            return geom
+        
+        if isinstance(geom, LineString):
+            return LineString([[round(x, precision) for x in pt] for pt in geom.coords])
+        elif isinstance(geom, MultiLineString):
+            return MultiLineString([
+                [[round(x, precision) for x in pt] for pt in line.coords]
+                for line in geom.geoms
+            ])
+        else:
+            return geom
 
-    # Apply coordinate rounding
-    result_gdf.geometry = result_gdf.geometry.map(
-        lambda g: round_coords(g, 6) if isinstance(g, LineString) else g
-    )
+    # Apply coordinate rounding (5 decimals = ~1m precision)
+    print("Rounding coordinates to 5 decimal places...")
+    result_gdf.geometry = result_gdf.geometry.map(lambda g: round_coords(g, 5))
+
+    # Before saving, replace any NaN/inf values
+    for col in result_gdf.columns:
+        if col != 'geometry' and pd.api.types.is_numeric_dtype(result_gdf[col]):
+            result_gdf[col] = result_gdf[col].fillna(0)
+            result_gdf[col] = result_gdf[col].replace([float('inf'), float('-inf')], 0)
 
     print(f"Saving optimized GeoJSON to {output_path}...")
     result_gdf.to_file(output_path, driver='GeoJSON')
+    gz_path = save_compressed_geojson(result_gdf, output_path)
     
     if os.path.exists(output_path):
         size_mb = os.path.getsize(output_path) / (1024 * 1024)
