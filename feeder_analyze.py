@@ -107,8 +107,10 @@ def create_pmtiles(geojson_path, pmtiles_path, layer_name, min_zoom=7, max_zoom=
         '-l', layer_name,
         '-Z', str(min_zoom),
         '-z', str(max_zoom),
-        '--drop-densest-as-needed',
-        '--extend-zooms-if-still-dropping',
+        '--no-feature-limit',           # Prevents dropping features in dense areas
+        '--no-tile-size-limit',          # Prevents dropping features to stay under 500kb
+        '--no-line-simplification',     # Stops lines from "dashing" or fragmenting
+        '--simplify-only-at-max-zoom',   # Ensures geometry stays intact at lower zooms
         '--force',
         geojson_path
     ]
