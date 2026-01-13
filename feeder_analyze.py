@@ -3,7 +3,6 @@ import pandas as pd
 from shapely.geometry import LineString, MultiLineString
 from shapely.ops import linemerge
 import subprocess
-import json
 import os
 
 def process_feeder_geometries(gdf, id_col):
@@ -70,8 +69,8 @@ def create_load_or_gen_screen(input_path, output_path, data_type):
         gdf['hosting_capacity_mw'] = pd.to_numeric(gdf['HC'], errors='coerce').round(2)
         gdf['constrained'] = (gdf['hosting_capacity_mw'] < 0.5).astype(int)
         
-        cols = ['Network_ID', 'hosting_capacity_mw', 'constrained', 'geometry']
-        id_col = 'Network_ID'
+        cols = ['Section_ID', 'Network_ID', 'hosting_capacity_mw', 'constrained', 'geometry']
+        id_col = 'Section_ID'
     else:
         print(f"Error: Unknown type '{data_type}'.")
         return None
